@@ -48,6 +48,7 @@ bun run start
 | `Esc` | Clear all filters |
 | `s` / `P` / `e` | Change the selected issue's status / priority / estimate (see below) |
 | `r` | Refresh now |
+| `?` | Help: every key for the screen you're on (the footer only shows a few) |
 | `q` | Quit |
 
 ### Filtering

@@ -17,7 +17,7 @@ import type { EditKind } from "./edit.ts";
 
 const PRIORITY_NAMES = ["No priority", "Urgent", "High", "Medium", "Low"];
 const MAX_TITLE_LINES = 3;
-const FOOTER_HEIGHT = 3; // two lines of key hints + one status line
+const FOOTER_HEIGHT = 2; // one line of key hints + one status line (the rest is in the ? help)
 
 // What we know about loading this issue's details.
 type LoadState =
@@ -29,12 +29,14 @@ export function DetailView({
   issue,
   onClose,
   onEdit,
+  onHelp,
   inputActive,
   notice,
 }: {
   issue: Issue;
   onClose: () => void;
   onEdit: (kind: EditKind) => void; // opens the edit panel (it confirms before changing anything)
+  onHelp: () => void; // opens the ? help panel
   inputActive: boolean; // false while the edit panel is open on top, so keys go to the panel only
   notice: string | null; // a confirmation to show in the footer, e.g. after a change
 }) {
@@ -105,6 +107,7 @@ export function DetailView({
     else if (input === "s") onEdit("status");
     else if (input === "P") onEdit("priority");
     else if (input === "e") onEdit("estimate");
+    else if (input === "?") onHelp();
   };
   // A chunk like "jjj" counts as three presses (see keys.ts).
   // isActive: switched OFF while the edit panel floats over this screen, so one keypress
@@ -192,10 +195,7 @@ export function DetailView({
       {/* ---- Footer ---- */}
       <Box flexDirection="column" flexShrink={0}>
         <Text dimColor wrap="truncate-end">
-          {"↑↓ scroll  space page  o open  esc back"}
-        </Text>
-        <Text dimColor wrap="truncate-end">
-          {"change: s status  P priority  e estimate"}
+          {"? help  ↑↓ scroll  esc back  space page"}
         </Text>
         <Text wrap="truncate-end">
           {notice ? <Text color="green">{`✓ ${notice}  `}</Text> : null}

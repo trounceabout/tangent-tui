@@ -18,7 +18,9 @@ A full-screen terminal app (Bun + TypeScript + Ink 8) showing my Linear issues f
 - `src/detail-view.tsx` the detail screen (pinned header, scrolling body, footer). Loads its own data.
 - `src/filter.ts` FILTER logic, pure functions (`filterIssues`, `parseQuery`, `nextTeam/nextLabel/nextPriority`, `describeFilters`). The `/` search bar edits `filters.query`; `t`, `p`, `L` cycle the other filters. `app.tsx` has a second `useInput` for the search bar, active only while `searching`, where every key is text.
 - `src/mutations.ts` the ONLY file that writes to Linear (status, priority, estimate). See "Writes" below.
-- `src/edit.ts` pure logic for the edit flow (what each picker offers, current value, the exact change sent, the finishing warning). `src/edit-views.tsx` what it looks like (props only), plus the floating `Panel`, `panelGeometry` and the height helpers. `src/edit-screen.tsx` the stateful flow: load options, pick, confirm, save, retry. Opened with `s`/`P`/`e` from the list or the detail screen.
+- `src/edit.ts` pure logic for the edit flow (what each picker offers, current value, the exact change sent, the finishing warning). `src/edit-views.tsx` what it looks like (props only) and the height helpers. `src/edit-screen.tsx` the stateful flow: load options, pick, confirm, save, retry. Opened with `s`/`P`/`e` from the list or the detail screen.
+- `src/panel.tsx` the floating panel shared by the edit flow and the help: `Panel`, `panelGeometry`, `PanelHeader` (the colored title bar), `PanelFooter`. See "The edit panel is an overlay" below.
+- `src/help.ts` the content of the `?` help: which keys do what on the board and on the detail screen (pure data). `src/help-screen.tsx` the help panel (`HelpView`, `HelpScreen`), which scrolls when the pane is short.
 - `src/keys.ts` `expandBurst()`: see the input gotcha below.
 - `src/theme.ts` the few colors Linear's API doesn't provide.
 - `src/open.ts` opens links with macOS `open` (https only).
@@ -52,6 +54,12 @@ This is the only part of the app that changes shared company data, so treat it a
 - Finishing statuses (completed, canceled, duplicate) get an extra warning: the user's process needs a validation comment before work is called done.
 - The edit screen sends nothing until Enter on the CONFIRM screen. The save is guarded three ways (the stage check in `handleKey`, the stage check in `save()`, and `savingRef`), so a second Enter can't send a second write. These overlap on purpose, so removing one alone changes nothing (an "equivalent mutant"): to test them, remove all three.
 - When you manually try the edit flow in a real pane, ALWAYS start it with `LINEAR_TUI_DRY_RUN=1` and check the `DRY RUN` banner is on screen before pressing Enter on a confirm screen.
+
+## Help and the footer
+
+- The footer is deliberately SHORT: one hint line (`? help  ↑↓ move  ⏎ open  / find  q quit`) plus the status line. Everything else is in the `?` help, so don't grow the footer again; add keys to `help.ts` instead.
+- **`help.ts` is hand-written, so keep it in sync with the real key handlers** (`handleKey` in `app.tsx` for the board, and `detail-view.tsx` for the detail screen). When you add, remove or rename a key, change `help.ts` too. A test checks the known keys are listed and that every row fits 28 columns (a narrow pane's panel), so keep rows short.
+- `?` is handled by the board and by the detail screen, and is just text in the search bar. It doesn't open over the edit panel. Both screens switch their keys off while the help is open (`!helpOpen` in the board's `isActive`, `inputActive` on the detail screen).
 
 ## The edit panel is an overlay
 

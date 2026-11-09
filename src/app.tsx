@@ -12,6 +12,7 @@ import type { Issue, StatusGroup } from "./linear.ts";
 import { CycleHeader, GroupHeader, IssueRow, issueHeight } from "./components.tsx";
 import { DetailView } from "./detail-view.tsx";
 import { EditScreen } from "./edit-screen.tsx";
+import { HelpScreen } from "./help-screen.tsx";
 import type { EditKind } from "./edit.ts";
 import { isDryRun } from "./mutations.ts";
 import { openInBrowser } from "./open.ts";
@@ -28,7 +29,7 @@ import {
 import type { Filters } from "./filter.ts";
 
 const REFRESH_MS = 60_000;
-const FOOTER_HEIGHT = 4; // three lines of key hints + one status line
+const FOOTER_HEIGHT = 2; // one line of key hints + one status line (the rest is in the ? help)
 const NO_FOLDS = new Set<string>(); // "nothing is folded", used while filtering
 
 // ---------------------------------------------------------------------------
@@ -90,6 +91,8 @@ export function App() {
   // A short confirmation after a change ("PD-3066: Todo → In Progress"), shown in
   // the footer for a few seconds.
   const [flash, setFlash] = useState<string | null>(null);
+  // Whether the ? help panel is open over the current screen.
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const load = useCallback(async () => {
     setRefreshing(true);
@@ -198,6 +201,8 @@ export function App() {
     else if (key.rightArrow || input === "l") setFolded(false);
     // / opens the search bar.
     else if (input === "/") setSearching(true);
+    // ? opens the help panel (every key, on this screen).
+    else if (input === "?") setHelpOpen(true);
     // t / p / L step the team, priority and label filters through their values
     // (All -> first -> second ... -> All). Functional updates, so quick presses add up.
     else if (input === "t" && issues) setFilters((f) => ({ ...f, team: nextTeam(issues, f.team) }));
@@ -229,7 +234,7 @@ export function App() {
     (input, key) => {
       for (const char of expandBurst(input)) handleKey(char, key);
     },
-    { isActive: detailIssue === null && !searching && editing === null },
+    { isActive: detailIssue === null && !searching && editing === null && !helpOpen },
   );
 
   // While the search bar is open, typed characters go INTO the query instead of
@@ -295,7 +300,8 @@ export function App() {
       issue={detailShown}
       onClose={() => setDetailIssue(null)}
       onEdit={(kind) => setEditing({ issue: detailShown, kind })}
-      inputActive={editing === null}
+      onHelp={() => setHelpOpen(true)}
+      inputActive={editing === null && !helpOpen}
       notice={flash}
     />
   ) : null;
@@ -315,6 +321,9 @@ export function App() {
         void load();
       }}
     />
+  ) : helpOpen ? (
+    // The help panel: the same kind of overlay, listing the keys of whichever screen is showing.
+    <HelpScreen kind={detailShown ? "detail" : "list"} onClose={() => setHelpOpen(false)} />
   ) : null;
 
   const list = (
@@ -375,31 +384,29 @@ export function App() {
           <Text wrap="truncate-end">
             <Text color="cyan">{"filter "}</Text>
             <Text>{describeFilters(filters)}</Text>
-            <Text dimColor>{`  ${countText}`}</Text>
+            <Text dimColor>{`  ${countText}  (esc clears)`}</Text>
           </Text>
         ) : (
+          // The one hint line. Every other key is in the ? help.
           <Text dimColor wrap="truncate-end">
-            {"↑↓ move  tab group  ⏎ open  o web  q quit"}
+            {"? help  ↑↓ move  ⏎ open  q quit  / find"}
           </Text>
         )}
-        <Text dimColor wrap="truncate-end">
-          {searching
-            ? "enter keep  esc clear  ↑↓ move"
-            : filtering
-              ? "esc clear  / edit  t team  p prio  L label"
-              : "filter: / find  t team  p prio  L label"}
-        </Text>
-        <Text dimColor wrap="truncate-end">
-          {searching ? " " : "change: s status  P prio  e est  r reload"}
-        </Text>
-        <Text wrap="truncate-end">
-          {isDryRun() ? <Text color="cyan">DRY RUN  </Text> : null}
-          {flash ? <Text color="green">{`✓ ${flash}  `}</Text> : null}
-          {error ? <Text color="red">{`${error}  `}</Text> : null}
-          <Text dimColor>
-            {`${hasAbove ? "▲ " : ""}${hasBelow ? "▼ " : ""}${refreshing ? "refreshing…" : time ? `updated ${time}` : ""}`}
+        {searching ? (
+          // While the search bar is open its own keys replace the status line.
+          <Text dimColor wrap="truncate-end">
+            {"enter keep  esc clear  ↑↓ move"}
           </Text>
-        </Text>
+        ) : (
+          <Text wrap="truncate-end">
+            {isDryRun() ? <Text color="cyan">DRY RUN  </Text> : null}
+            {flash ? <Text color="green">{`✓ ${flash}  `}</Text> : null}
+            {error ? <Text color="red">{`${error}  `}</Text> : null}
+            <Text dimColor>
+              {`${hasAbove ? "▲ " : ""}${hasBelow ? "▼ " : ""}${refreshing ? "refreshing…" : time ? `updated ${time}` : ""}`}
+            </Text>
+          </Text>
+        )}
       </Box>
     </Box>
   );

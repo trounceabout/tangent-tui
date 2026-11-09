@@ -14,16 +14,8 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import { useInput, useWindowSize } from "ink";
 import type { Key } from "ink";
-import {
-  ConfirmView,
-  MessageView,
-  Panel,
-  PickerView,
-  confirmHeight,
-  messageHeight,
-  panelGeometry,
-  pickerHeight,
-} from "./edit-views.tsx";
+import { ConfirmView, MessageView, PickerView, confirmHeight, messageHeight, pickerHeight } from "./edit-views.tsx";
+import { Panel, panelGeometry } from "./panel.tsx";
 import {
   EDIT_FIELD,
   EDIT_TITLE,

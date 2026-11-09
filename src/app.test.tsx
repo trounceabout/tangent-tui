@@ -6,7 +6,9 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Mock } from "bun:test";
 import { App } from "./app.tsx";
-import { panelGeometry } from "./edit-views.tsx";
+import { helpHeight } from "./help-screen.tsx";
+import { helpLines } from "./help.ts";
+import { panelGeometry } from "./panel.tsx";
 import { mockFetch } from "./testing.ts";
 import type { SeenRequest } from "./testing.ts";
 import { KEY, mountTerminal } from "./testing-terminal.ts";
@@ -285,6 +287,116 @@ describe("the edit panel floats over the list", () => {
     await app.press("s", "P", "e");
     expect(app.screen()).not.toContain("Change");
     expect(app.server.requests.filter((r) => !r.query.includes("MyCycleIssues"))).toHaveLength(0);
+    app.unmount();
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe("the ? help panel", () => {
+  test("the footer is short now: one hint line and the status line", async () => {
+    const app = await startApp();
+    const rows = app.rowsOf();
+    expect(rows.at(-2)).toContain("? help");
+    expect(rows.at(-1)).toContain("updated");
+    expect(app.screen()).not.toContain("change: s status"); // the long hint lines moved into the help
+    expect(app.screen()).not.toContain("filter: /");
+    app.unmount();
+  });
+
+  test("the detail screen's footer is short too", async () => {
+    const app = await startApp();
+    await app.openDetail();
+    const rows = app.rowsOf();
+    expect(rows.at(-2)).toContain("? help");
+    expect(rows.at(-1)).toContain("lines 1–");
+    expect(app.screen()).not.toContain("change: s status");
+    app.unmount();
+  });
+
+  test("opens over the board, which stays visible around it; keys go to the help only; Esc closes it", async () => {
+    const app = await startApp();
+    await app.press(KEY.j); // select PD-7
+    await app.press("?");
+    expect(app.screen()).toContain("Keyboard help");
+    expect(app.screen()).toContain("On the board");
+    expect(app.rowsOf()[0]).toContain("LINEAR BOARD"); // the board is still there, above the panel
+
+    await app.press(KEY.j, KEY.j, KEY.k); // scroll the HELP, not the board
+    await app.press(KEY.esc);
+    expect(app.screen()).not.toContain("Keyboard help");
+    expect(app.screen()).toContain("▌ PD-7"); // the board's cursor never moved
+    app.unmount();
+  });
+
+  test("covers the board beneath it completely", async () => {
+    const app = await startApp();
+    await app.press(KEY.j);
+    await app.press("?");
+    const g = panelGeometry(COLUMNS, ROWS, helpHeight(helpLines("list").length, ROWS - 4));
+    const rows = app.rowsOf();
+    for (let row = g.top + 1; row < g.top + g.height - 1; row++) {
+      const inside = (rows[row] ?? "").slice(g.left + 1, g.left + g.width - 1);
+      expect(inside).not.toContain("PD-7");
+      expect(inside).not.toContain("Fix the thing");
+    }
+    app.unmount();
+  });
+
+  test("? again closes it", async () => {
+    const app = await startApp();
+    await app.press("?");
+    expect(app.screen()).toContain("Keyboard help");
+    await app.press("?");
+    expect(app.screen()).not.toContain("Keyboard help");
+    app.unmount();
+  });
+
+  test("over the detail screen it shows the detail screen's keys, and that screen stays put", async () => {
+    const app = await startApp();
+    await app.openDetail();
+    await app.press("?");
+    expect(app.screen()).toContain("Keyboard help");
+    expect(app.screen()).toContain("On an issue's detail screen");
+    expect(app.screen()).toContain("back to the board");
+
+    await app.press(KEY.j, KEY.j); // must NOT scroll the detail screen underneath
+    expect(app.rowsOf().at(-1)).toContain("lines 1–");
+
+    await app.press(KEY.esc); // closes only the help
+    expect(app.screen()).not.toContain("Keyboard help");
+    expect(app.screen()).toContain("DESCRIPTION");
+    await app.press(KEY.j); // and the detail's own keys work again
+    expect(app.rowsOf().at(-1)).toContain("lines 2–");
+    app.unmount();
+  });
+
+  test("doesn't open on top of the edit panel", async () => {
+    const app = await startApp();
+    await app.press(KEY.j);
+    await app.press("P");
+    expect(app.screen()).toContain("Change priority");
+    await app.press("?");
+    expect(app.screen()).not.toContain("Keyboard help");
+    expect(app.screen()).toContain("Change priority");
+    app.unmount();
+  });
+
+  test("a ? typed into the search bar is just text, not the help key", async () => {
+    const app = await startApp();
+    await app.press("/");
+    await app.press("?");
+    expect(app.screen()).not.toContain("Keyboard help");
+    expect(app.rowsOf().at(-2)).toContain("/ ?"); // the search bar shows the typed character
+    app.unmount();
+  });
+
+  test("the edit keys still work from the board after closing the help", async () => {
+    const app = await startApp();
+    await app.press(KEY.j);
+    await app.press("?");
+    await app.press(KEY.esc);
+    await app.press("P");
+    expect(app.screen()).toContain("Change priority");
     app.unmount();
   });
 });
