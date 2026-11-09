@@ -9,6 +9,7 @@
   "private": true,
   "scripts": {
     "start": "bun index.tsx",
+    "build": "bun scripts/build.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint ."
