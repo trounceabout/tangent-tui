@@ -285,40 +285,40 @@ export function App() {
 
   const time = updatedAt?.toLocaleTimeString("en-GB") ?? "";
 
-  // The edit screen replaces everything while it's open. Cancelling returns to
-  // wherever you were (the list, or the detail screen). After a change is applied we
-  // go back to the list, show a confirmation, and reload so the board shows what
-  // Linear really has.
-  if (editing) {
-    return (
-      <EditScreen
-        issue={editing.issue}
-        kind={editing.kind}
-        onCancel={() => setEditing(null)}
-        onDone={(message) => {
-          setEditing(null);
-          setDetailIssue(null);
-          setFlash(message);
-          void load();
-        }}
-      />
-    );
-  }
+  // The detail screen replaces the list while it's open. (The list's state, like the
+  // selection and scroll position, is kept, so closing puts you right back.) It shows
+  // the freshest copy of the issue from the last reload, so a change you just made
+  // appears there, falling back to the copy we opened.
+  const detailShown = detailIssue ? (issues?.find((i) => i.identifier === detailIssue.identifier) ?? detailIssue) : null;
+  const detail = detailShown ? (
+    <DetailView
+      issue={detailShown}
+      onClose={() => setDetailIssue(null)}
+      onEdit={(kind) => setEditing({ issue: detailShown, kind })}
+      inputActive={editing === null}
+      notice={flash}
+    />
+  ) : null;
 
-  // The detail screen replaces the list while it's open. (The list's state, like
-  // the selection and scroll position, is kept, so closing puts you right back.)
-  if (detailIssue) {
-    return (
-      <DetailView
-        issue={detailIssue}
-        onClose={() => setDetailIssue(null)}
-        onEdit={(kind) => setEditing({ issue: detailIssue, kind })}
-      />
-    );
-  }
+  // The edit panel floats over whichever screen is showing. Cancelling just closes it.
+  // After a change is applied we stay where we were, show a confirmation, and reload so
+  // the board shows what Linear really has. The screen below stays mounted the whole
+  // time (its keys are switched off), so it keeps its scroll position.
+  const overlay = editing ? (
+    <EditScreen
+      issue={editing.issue}
+      kind={editing.kind}
+      onCancel={() => setEditing(null)}
+      onDone={(message) => {
+        setEditing(null);
+        setFlash(message);
+        void load();
+      }}
+    />
+  ) : null;
 
-  return (
-    // The whole screen: a column exactly as big as the terminal.
+  const list = (
+    // The whole list screen: a column exactly as big as the terminal.
     <Box flexDirection="column" width={columns} height={rows}>
       {issues === null ? (
         <Box flexGrow={1}>
@@ -401,6 +401,15 @@ export function App() {
           </Text>
         </Text>
       </Box>
+    </Box>
+  );
+
+  // The base screen, with the edit panel (if any) drawn on top of it. The panel comes
+  // AFTER the screen, so it is painted over it.
+  return (
+    <Box width={columns} height={rows}>
+      {detail ?? list}
+      {overlay}
     </Box>
   );
 }

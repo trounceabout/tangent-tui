@@ -18,7 +18,7 @@ A full-screen terminal app (Bun + TypeScript + Ink 8) showing my Linear issues f
 - `src/detail-view.tsx` the detail screen (pinned header, scrolling body, footer). Loads its own data.
 - `src/filter.ts` FILTER logic, pure functions (`filterIssues`, `parseQuery`, `nextTeam/nextLabel/nextPriority`, `describeFilters`). The `/` search bar edits `filters.query`; `t`, `p`, `L` cycle the other filters. `app.tsx` has a second `useInput` for the search bar, active only while `searching`, where every key is text.
 - `src/mutations.ts` the ONLY file that writes to Linear (status, priority, estimate). See "Writes" below.
-- `src/edit.ts` pure logic for the edit screens (what each picker offers, current value, the exact change sent, the finishing warning). `src/edit-views.tsx` what they look like (props only). `src/edit-screen.tsx` the stateful flow: load options, pick, confirm, save, retry. Opened with `s`/`P`/`e` from the list or the detail screen.
+- `src/edit.ts` pure logic for the edit flow (what each picker offers, current value, the exact change sent, the finishing warning). `src/edit-views.tsx` what it looks like (props only), plus the floating `Panel`, `panelGeometry` and the height helpers. `src/edit-screen.tsx` the stateful flow: load options, pick, confirm, save, retry. Opened with `s`/`P`/`e` from the list or the detail screen.
 - `src/keys.ts` `expandBurst()`: see the input gotcha below.
 - `src/theme.ts` the few colors Linear's API doesn't provide.
 - `src/open.ts` opens links with macOS `open` (https only).
@@ -53,6 +53,21 @@ This is the only part of the app that changes shared company data, so treat it a
 - The edit screen sends nothing until Enter on the CONFIRM screen. The save is guarded three ways (the stage check in `handleKey`, the stage check in `save()`, and `savingRef`), so a second Enter can't send a second write. These overlap on purpose, so removing one alone changes nothing (an "equivalent mutant"): to test them, remove all three.
 - When you manually try the edit flow in a real pane, ALWAYS start it with `LINEAR_TUI_DRY_RUN=1` and check the `DRY RUN` banner is on screen before pressing Enter on a confirm screen.
 
+## The edit panel is an overlay
+
+The edit flow floats over whichever screen is showing (list or detail); the screen below stays mounted. How it works, and what to remember:
+
+- `App` returns `<Box width height>{detail ?? list}{overlay}</Box>`. The overlay comes AFTER the screen, so it is painted on top. The panel is `position="absolute"` with `top`/`left` from `panelGeometry()`.
+- **Absolute boxes are see-through.** The terminal only has characters, so `Panel` draws a block of spaces behind its content to blank out what's underneath. Without it the screen below shows through.
+- The panel is placed relative to its PARENT, so the parent must have a size (the app's full-screen `Box`). In a test, wrap `EditScreen` in a sized `Box` or it is clipped to nothing.
+- While the panel is open, the screen below must have its keys OFF: the list's `useInput` has `isActive` including `editing === null`, and `DetailView` takes `inputActive`. One keypress must never drive two things.
+- After a change the panel closes and you STAY on the screen you were on. `App` shows `detailShown`, the freshest copy of the issue from the last reload, so the new value appears; the `✓` message goes to the footer (`notice` on the detail screen).
+- **Sizes are computed, not measured.** `pickerHeight`, `confirmHeight` and `messageHeight` must equal the lines the view really draws. Anything that can wrap (the warning, the dry-run banner, the "nothing to change" text) is wrapped by us with `wrapText` so its line count is known. A miscount makes flexbox squash the spacing, which once cut the first line of the finishing-status warning in a narrow pane.
+- **Every picker option is exactly ONE line** (one outer `Text` with `wrap="truncate-end"`), because the scrolling assumes it.
+- The confirm screen stacks the change on three lines when it doesn't fit on one, so the DESTINATION is never cut off.
+- Under 60 columns the panel takes the full width; a margin there only reveals stray characters of the screen below.
+- Check the panel on a real narrow pane in dry-run. The first real look at a 32-column pane found three bugs the tests had missed.
+
 ## Tests (`bun test`)
 
 One `*.test.ts(x)` file per module. They use made-up data and a fake network, never real Linear or the Keychain, so they're fast and anyone can run them.
@@ -62,7 +77,9 @@ One `*.test.ts(x)` file per module. They use made-up data and a fake network, ne
 - The squash regression needs 3 two-line rows in a 4-line box; with only 2 rows the rounding hides it.
 - Time-dependent tests use `setSystemTime` and build dates in local time, so they pass in any timezone.
 - `open.test.ts` spies on `Bun.spawn`, so no real browser ever launches.
-- `edit-screen.test.tsx` runs the REAL `EditScreen` with Ink's `render`, a fake stdin (`FakeStdin`, a PassThrough with `isTTY`/`setRawMode`) and a fake network, sends keystrokes, and counts the write requests actually sent. It also spies on `Bun.spawn` so the Keychain read returns a fake key. Slow (about 11 s) because keys are paced; keep it that way rather than risk flaky timing. Use `mockFetch(..., { delayMs })` to hold a write in flight.
+- `src/testing-terminal.ts` has `mountTerminal(node, { columns, rows })`: it runs a REAL Ink app with a fake stdin (a PassThrough with `isTTY`/`setRawMode`) and returns `press(...keys)`, `screen()`, `flat()` (whitespace collapsed, for text that may wrap), `settle()`, `unmount()`. `KEY` has the byte sequences.
+- `edit-screen.test.tsx` runs the real `EditScreen` through it with a fake network and counts the write requests actually sent. `app.test.tsx` runs the whole `App` against a fake Linear server that REMEMBERS changes (so the reload after an edit returns the new values), and checks the panel over the detail and list screens. Both spy on `Bun.spawn` so the Keychain read returns a fake key. They are slow (the suite takes about 26 s) because keys are paced; keep it that way rather than risk flaky timing. Use `mockFetch(..., { delayMs })` to hold a write in flight.
+- Make fake data realistic enough to expose layering bugs: `app.test.tsx` uses long description lines so they run underneath the panel; short ones hid a "panel drawn under the screen" bug.
 - Timing tests (ReDoS) use a generous 500 ms limit; the bug they guard took 3.5 s at 100 KB. `inline()` is exported so the regex bounds are tested **separately** from the line cap that also protects `renderMarkdown`.
 - **A test that has never failed proves nothing.** When you add a safety or layout test, temporarily break the code it guards and confirm the test fails. That check found two tests that couldn't fail when this suite was written.
 

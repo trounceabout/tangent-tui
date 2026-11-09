@@ -5,35 +5,15 @@
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Mock } from "bun:test";
-import { PassThrough } from "node:stream";
-import { render } from "ink";
+import { Box } from "ink";
 import { EditScreen } from "./edit-screen.tsx";
 import type { EditKind } from "./edit.ts";
 import type { Issue } from "./linear.ts";
 import { ESC, makeIssue, mockFetch } from "./testing.ts";
 import type { SeenRequest } from "./testing.ts";
+import { KEY, mountTerminal } from "./testing-terminal.ts";
 
 const ID = (n: number) => `${String(n).repeat(8)}-${String(n).repeat(4)}-4${String(n).repeat(3)}-8${String(n).repeat(3)}-${String(n).repeat(12)}`;
-const ANSI = new RegExp(`${ESC}\\[[0-9;?]*[A-Za-z]`, "g");
-
-// Keys, as the bytes a terminal sends.
-const KEY = { enter: "\r", esc: ESC, down: `${ESC}[B`, up: `${ESC}[A`, j: "j", k: "k", q: "q" };
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// A fake terminal for Ink: keys go in, frames come out.
-class FakeStdin extends PassThrough {
-  isTTY = true;
-  setRawMode() {
-    return this;
-  }
-  ref() {
-    return this;
-  }
-  unref() {
-    return this;
-  }
-}
-
 const issue: Issue = makeIssue({
   identifier: "PD-7",
   title: "Fix the thing",
@@ -114,38 +94,21 @@ function mount(
     },
     { delayMs: options.delayMs },
   );
-  const stdin = new FakeStdin();
-  const stdout = new PassThrough() as PassThrough & { columns: number; rows: number; isTTY: boolean };
-  stdout.columns = 60;
-  stdout.rows = 24;
-  stdout.isTTY = true;
-  const frames: string[] = [];
-  stdout.on("data", (chunk: Buffer) => frames.push(chunk.toString()));
-
   const events = { cancelled: 0, done: [] as string[] };
-  const app = render(
-    <EditScreen issue={issue} kind={kind} onCancel={() => events.cancelled++} onDone={(message) => events.done.push(message)} />,
-    { stdin: stdin as never, stdout: stdout as never, debug: true, patchConsole: false, exitOnCtrlC: false },
+  // The panel is positioned over its PARENT, so it needs a parent with a size, exactly
+  // like the full-screen box the app puts it in. Without one it would be clipped to nothing.
+  const terminal = mountTerminal(
+    <Box width={60} height={24}>
+      <EditScreen issue={issue} kind={kind} onCancel={() => events.cancelled++} onDone={(message) => events.done.push(message)} />
+    </Box>,
+    { columns: 60, rows: 24 },
   );
 
   return {
     requests,
     events,
     writes: () => requests.filter((r) => r.query.includes("issueUpdate")),
-    // Send keys one at a time, with a pause so each is handled before the next.
-    async press(...keys: string[]) {
-      for (const key of keys) {
-        stdin.write(key);
-        await wait(60);
-      }
-    },
-    screen: () => (frames.at(-1) ?? "").replace(ANSI, ""),
-    // The same, with line breaks and runs of spaces collapsed, for text that may wrap.
-    flat: () => (frames.at(-1) ?? "").replace(ANSI, "").replace(/\s+/g, " "),
-    async settle(ms = 120) {
-      await wait(ms);
-    },
-    unmount: () => app.unmount(),
+    ...terminal,
   };
 }
 

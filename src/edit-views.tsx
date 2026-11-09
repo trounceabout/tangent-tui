@@ -1,11 +1,118 @@
 // src/edit-views.tsx
-// What the edit screens LOOK like. Plain functions of their props: no state, no keys,
+// What the edit panel LOOKS like. Plain functions of their props: no state, no keys,
 // no network (those live in edit-screen.tsx), so they're easy to test.
+//
+// The edit flow appears as a bordered panel floating over whatever screen you were
+// on (the list or the issue's detail). A terminal has no layers, so the panel is an
+// absolutely-positioned box drawn after (on top of) the screen below, with a fill of
+// spaces behind its content so the screen underneath doesn't show through.
 
+import type { ReactNode } from "react";
 import { Box, Text } from "ink";
 import { wrapText } from "./detail.ts";
 import type { EditOption } from "./edit.ts";
 import type { Issue } from "./linear.ts";
+
+// ---------------------------------------------------------------------------
+// Sizes. Every view below draws EXACTLY the height its helper returns, and a test
+// checks that, because the panel's border and fill are sized from these numbers.
+// ---------------------------------------------------------------------------
+const HEADER_HEIGHT = 3; // title, issue line, divider
+const FOOTER_HEIGHT = 2; // a blank line, then the key hints
+
+const PANEL_MAX_WIDTH = 64;
+const PANEL_MIN_WIDTH = 24;
+
+export type PanelGeometry = {
+  width: number; // outer width, border included
+  height: number; // outer height, border included
+  left: number;
+  top: number;
+  contentWidth: number; // room for text: outside width minus border and padding
+  contentHeight: number; // room for lines: outside height minus border
+};
+
+// Below this many columns the panel takes the FULL width. A 2-column margin on a narrow
+// terminal just reveals stray single characters of the screen underneath.
+const FULL_WIDTH_BELOW = 60;
+
+// Centre a panel on the screen. It wants `wantedContentHeight` lines but is never
+// taller than the screen (minus a 1-line margin top and bottom) or wider than it.
+export function panelGeometry(columns: number, rows: number, wantedContentHeight: number): PanelGeometry {
+  const margin = columns < FULL_WIDTH_BELOW ? 0 : 4;
+  const width = Math.min(columns, Math.max(PANEL_MIN_WIDTH, Math.min(PANEL_MAX_WIDTH, columns - margin)));
+  const height = Math.min(Math.max(3, wantedContentHeight + 2), Math.max(3, rows - 2));
+  return {
+    width,
+    height,
+    left: Math.max(0, Math.floor((columns - width) / 2)),
+    top: Math.max(0, Math.floor((rows - height) / 2)),
+    contentWidth: Math.max(10, width - 4),
+    contentHeight: height - 2,
+  };
+}
+
+// How many lines each view needs, given the width it will be drawn at.
+export function pickerHeight(optionCount: number, maxHeight: number): number {
+  const room = Math.max(1, Math.min(optionCount, maxHeight - HEADER_HEIGHT - FOOTER_HEIGHT));
+  return HEADER_HEIGHT + room + FOOTER_HEIGHT;
+}
+
+const noChangeText = (field: string, to: string) => `${field} is already ${to}. Nothing to change.`;
+const warningLines = (warning: string, width: number) => wrapText(warning, Math.max(10, width - 2), "⚠ ", "  ");
+// The dry-run banner is wrapped by us (not left to Ink) so we know how many lines it
+// takes. In a narrow panel it takes two, and a height that counted one cut the banner
+// and squashed the warning above it.
+const dryRunLines = (width: number) => wrapText("DRY RUN: nothing will be sent to Linear.", Math.max(10, width));
+
+// The change normally reads on one line: "Status  Todo  →  ● In Progress". If that doesn't
+// fit, it is STACKED on three lines instead, so the destination (the one thing that must
+// be readable on a confirm screen) is never cut off.
+const changeIsStacked = (width: number, field: string, from: string, to: string, hasColor: boolean): boolean =>
+  Bun.stringWidth(`${field}  ${from}  →  ${hasColor ? "● " : ""}${to}`) > width;
+
+export function confirmHeight(
+  width: number,
+  {
+    field,
+    from,
+    to,
+    toColor,
+    warning,
+    dryRun,
+    noChange,
+  }: { field: string; from: string; to: string; toColor?: string; warning: string | null; dryRun: boolean; noChange: boolean },
+): number {
+  let body = 1; // the blank line under the header
+  if (noChange) body += wrapText(noChangeText(field, to), width).length;
+  else body += changeIsStacked(width, field, from, to, toColor !== undefined) ? 3 : 1;
+  if (warning && !noChange) body += 1 + warningLines(warning, width).length;
+  if (dryRun) body += 1 + dryRunLines(width).length; // a blank line, then the banner
+  return HEADER_HEIGHT + body + FOOTER_HEIGHT;
+}
+
+export const messageHeight = (width: number, message: string): number =>
+  HEADER_HEIGHT + 1 + wrapText(message, Math.max(10, width)).length + FOOTER_HEIGHT;
+
+// ---------------------------------------------------------------------------
+// The floating panel itself.
+// ---------------------------------------------------------------------------
+export function Panel({ geometry, children }: { geometry: PanelGeometry; children: ReactNode }) {
+  const { width, height, left, top } = geometry;
+  // A block of spaces the size of the inside. Drawn first, so it blanks out whatever
+  // the screen below put there, and the real content is drawn over it.
+  const fill = Array.from({ length: height - 2 }, () => " ".repeat(width - 2)).join("\n");
+  return (
+    <Box position="absolute" top={top} left={left} width={width} height={height} borderStyle="round" borderColor="cyan" flexDirection="column">
+      <Box position="absolute">
+        <Text>{fill}</Text>
+      </Box>
+      <Box paddingX={1} flexDirection="column" width={width - 2} height={height - 2}>
+        {children}
+      </Box>
+    </Box>
+  );
+}
 
 // Title, then the issue (ID + title, cut to fit), then a divider. Always 3 lines.
 function EditHeader({ title, issue, width }: { title: string; issue: Issue; width: number }) {
@@ -17,8 +124,6 @@ function EditHeader({ title, issue, width }: { title: string; issue: Issue; widt
     </Box>
   );
 }
-const HEADER_HEIGHT = 3;
-const FOOTER_HEIGHT = 2; // a blank line, then the key hints
 
 function Footer({ hint }: { hint: string }) {
   return (
@@ -63,14 +168,17 @@ export function PickerView({
         {visible.map((option, offset) => {
           const index = start + offset;
           return (
-            <Box key={`${index}-${option.label}`} flexShrink={0}>
-              <Text color="cyan">{index === cursor ? "▌ " : "  "}</Text>
-              {option.color ? <Text color={option.color}>{"● "}</Text> : null}
-              <Text bold={index === cursor} wrap="truncate-end">
-                {option.label}
+            // The whole row is ONE Text that truncates as a unit. If the label and its
+            // notes were separate boxes, a long note would wrap onto a second line, and
+            // the scrolling assumes every option is exactly one line.
+            <Box key={`${index}-${option.label}`} flexShrink={0} width={width}>
+              <Text wrap="truncate-end">
+                <Text color="cyan">{index === cursor ? "▌ " : "  "}</Text>
+                {option.color ? <Text color={option.color}>{"● "}</Text> : null}
+                <Text bold={index === cursor}>{option.label}</Text>
+                {index === currentIndex ? <Text dimColor>{"  (current)"}</Text> : null}
+                {option.finished ? <Text dimColor>{"  finishes the work"}</Text> : null}
               </Text>
-              {index === currentIndex ? <Text dimColor>{"  (current)"}</Text> : null}
-              {option.finished ? <Text dimColor>{"  finishes the work"}</Text> : null}
             </Box>
           );
         })}
@@ -114,7 +222,20 @@ export function ConfirmView({
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
         <Text> </Text>
         {noChange ? (
-          <Text>{`${field} is already ${to}. Nothing to change.`}</Text>
+          wrapText(noChangeText(field, to), width).map((line, index) => <Text key={index}>{line}</Text>)
+        ) : changeIsStacked(width, field, from, to, toColor !== undefined) ? (
+          // Too narrow for one line: field, then the old value, then the NEW value.
+          <Box flexDirection="column">
+            <Text dimColor wrap="truncate-end">
+              {field}
+            </Text>
+            <Text wrap="truncate-end">{`  ${from}`}</Text>
+            <Text wrap="truncate-end">
+              <Text dimColor>{"→ "}</Text>
+              {toColor ? <Text color={toColor}>{"● "}</Text> : null}
+              <Text bold>{to}</Text>
+            </Text>
+          </Box>
         ) : (
           <Text wrap="truncate-end">
             <Text dimColor>{`${field}  `}</Text>
@@ -126,7 +247,7 @@ export function ConfirmView({
         )}
         {warning && !noChange ? (
           <Box flexDirection="column" marginTop={1}>
-            {wrapText(warning, Math.max(10, width - 2), "⚠ ", "  ").map((line, index) => (
+            {warningLines(warning, width).map((line, index) => (
               <Text key={index} color="yellow">
                 {line}
               </Text>
@@ -134,8 +255,12 @@ export function ConfirmView({
           </Box>
         ) : null}
         {dryRun ? (
-          <Box marginTop={1}>
-            <Text color="cyan">DRY RUN: nothing will be sent to Linear.</Text>
+          <Box flexDirection="column" marginTop={1}>
+            {dryRunLines(width).map((line, index) => (
+              <Text key={index} color="cyan">
+                {line}
+              </Text>
+            ))}
           </Box>
         ) : null}
       </Box>

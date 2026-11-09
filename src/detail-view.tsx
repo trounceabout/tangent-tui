@@ -29,10 +29,14 @@ export function DetailView({
   issue,
   onClose,
   onEdit,
+  inputActive,
+  notice,
 }: {
   issue: Issue;
   onClose: () => void;
-  onEdit: (kind: EditKind) => void; // opens the edit screen (it confirms before changing anything)
+  onEdit: (kind: EditKind) => void; // opens the edit panel (it confirms before changing anything)
+  inputActive: boolean; // false while the edit panel is open on top, so keys go to the panel only
+  notice: string | null; // a confirmation to show in the footer, e.g. after a change
 }) {
   const { columns, rows } = useWindowSize();
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
@@ -103,9 +107,14 @@ export function DetailView({
     else if (input === "e") onEdit("estimate");
   };
   // A chunk like "jjj" counts as three presses (see keys.ts).
-  useInput((input, key) => {
-    for (const char of expandBurst(input)) handleKey(char, key);
-  });
+  // isActive: switched OFF while the edit panel floats over this screen, so one keypress
+  // never drives two things at once.
+  useInput(
+    (input, key) => {
+      for (const char of expandBurst(input)) handleKey(char, key);
+    },
+    { isActive: inputActive },
+  );
 
   // --- Header pieces ----------------------------------------------------------
   const muted = isFinished(issue.state.type);
@@ -188,10 +197,13 @@ export function DetailView({
         <Text dimColor wrap="truncate-end">
           {"change: s status  P priority  e estimate"}
         </Text>
-        <Text dimColor wrap="truncate-end">
-          {lines.length > 0
-            ? `${hasAbove ? "▲ " : ""}${hasBelow ? "▼ " : ""}lines ${shownTop + 1}–${Math.min(lines.length, shownTop + bodyHeight)} of ${lines.length}`
-            : " "}
+        <Text wrap="truncate-end">
+          {notice ? <Text color="green">{`✓ ${notice}  `}</Text> : null}
+          <Text dimColor>
+            {lines.length > 0
+              ? `${hasAbove ? "▲ " : ""}${hasBelow ? "▼ " : ""}lines ${shownTop + 1}–${Math.min(lines.length, shownTop + bodyHeight)} of ${lines.length}`
+              : " "}
+          </Text>
         </Text>
       </Box>
     </Box>

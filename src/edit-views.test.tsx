@@ -2,8 +2,8 @@
 
 import { describe, expect, test } from "bun:test";
 import type { ReactElement } from "react";
-import { Box, renderToString } from "ink";
-import { ConfirmView, MessageView, PickerView } from "./edit-views.tsx";
+import { Box, Text, renderToString } from "ink";
+import { ConfirmView, MessageView, Panel, PickerView, confirmHeight, messageHeight, panelGeometry, pickerHeight } from "./edit-views.tsx";
 import type { EditOption } from "./edit.ts";
 import { ESC, makeIssue } from "./testing.ts";
 
@@ -147,5 +147,197 @@ describe("MessageView", () => {
     const out = render({ message: "word ".repeat(30) }, 30);
     for (const line of out) expect(width(line)).toBeLessThanOrEqual(30);
     expect(out.filter((l) => l.includes("word")).length).toBeGreaterThan(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The panel floats over another screen. These cover where it goes, how big it is,
+// and that it fully covers what's underneath.
+describe("panelGeometry", () => {
+  test("is centred, at most 64 wide, with room for text inside the border and padding", () => {
+    expect(panelGeometry(100, 40, 10)).toEqual({ width: 64, height: 12, left: 18, top: 14, contentWidth: 60, contentHeight: 10 });
+  });
+
+  test("on a narrow terminal it takes the full width, so nothing of the screen below pokes out at the sides", () => {
+    expect(panelGeometry(30, 40, 5)).toMatchObject({ width: 30, left: 0 });
+    expect(panelGeometry(20, 40, 5)).toMatchObject({ width: 20, left: 0 });
+    expect(panelGeometry(59, 40, 5)).toMatchObject({ width: 59, left: 0 });
+  });
+
+  test("on a wider terminal it keeps a margin and a maximum width", () => {
+    expect(panelGeometry(60, 40, 5)).toMatchObject({ width: 56, left: 2 });
+    expect(panelGeometry(200, 40, 5)).toMatchObject({ width: 64, left: 68 });
+  });
+
+  test("is never taller than the screen minus a 1-line margin", () => {
+    expect(panelGeometry(80, 10, 50).height).toBe(8);
+    expect(panelGeometry(80, 3, 50).height).toBe(3); // a tiny terminal still gets a usable box
+  });
+
+  test("always fits inside the screen, at any terminal size", () => {
+    for (let columns = 10; columns <= 120; columns += 5) {
+      for (let rows = 5; rows <= 60; rows += 5) {
+        for (const wanted of [1, 8, 40]) {
+          const g = panelGeometry(columns, rows, wanted);
+          expect(g.left).toBeGreaterThanOrEqual(0);
+          expect(g.top).toBeGreaterThanOrEqual(0);
+          expect(g.left + g.width).toBeLessThanOrEqual(columns);
+          expect(g.top + g.height).toBeLessThanOrEqual(rows);
+          expect(g.contentWidth).toBeGreaterThanOrEqual(10);
+        }
+      }
+    }
+  });
+});
+
+// If a height helper undercounts, the view's footer or last line is clipped; if it
+// overcounts, there's a gap. So: at the helper's height, the last body line is right
+// above the blank line and the hint, and the hint is the very last line.
+describe("each view fills exactly the height its helper reports", () => {
+  const atLeast = (out: string[], height: number) => {
+    expect(out).toHaveLength(height);
+    expect(out[height - 1]?.trim()).not.toBe(""); // the key hint
+    expect(out[height - 2]?.trim()).toBe(""); // the blank line above it
+    expect(out[height - 3]?.trim()).not.toBe(""); // the last body line, not a gap
+  };
+
+  test("PickerView", () => {
+    for (const count of [1, 3, 5, 11]) {
+      const options: EditOption[] = Array.from({ length: count }, (_, i) => ({ value: i, label: `Option ${i}` }));
+      const height = pickerHeight(count, 50);
+      const out = lines(<PickerView title="T" issue={issue} options={options} cursor={0} currentIndex={0} width={40} height={height} />, 40);
+      atLeast(out, height);
+      expect(out.join("\n")).toContain(`Option ${count - 1}`); // the last option isn't clipped
+    }
+  });
+
+  // The scrolling assumes every option is exactly ONE line. A long note ("finishes the
+  // work") used to wrap onto a second line in a narrow panel, pushing the last options
+  // out of view. Each option must be one line, at any width.
+  test("every option is exactly one line, even with long notes in a narrow panel", () => {
+    const options: EditOption[] = [
+      { value: "a", label: "Backlog", color: "#bec2c8" },
+      { value: "b", label: "In Progress", color: "#f2c94c" },
+      { value: "c", label: "Ready to Release", color: "#5e6ad2", finished: true },
+      { value: "d", label: "Done", color: "#5e6ad2", finished: true },
+      { value: "e", label: "Canceled", color: "#95a2b3", finished: true },
+      { value: "f", label: "Duplicate", color: "#95a2b3", finished: true },
+    ];
+    for (const columns of [14, 20, 24, 28, 32, 40, 60]) {
+      const height = pickerHeight(options.length, 50);
+      const out = lines(<PickerView title="T" issue={issue} options={options} cursor={1} currentIndex={1} width={columns} height={height} />, columns);
+      const rows = out.slice(3, 3 + options.length); // directly under the 3-line header
+      expect(rows).toHaveLength(options.length);
+      for (const row of rows) {
+        expect(row.trim()).not.toBe(""); // each option sits on its own line, none pushed out
+        expect(width(row)).toBeLessThanOrEqual(columns);
+      }
+      expect(out[3 + options.length]?.trim()).toBe(""); // and the blank line before the hint follows directly
+      // A row that doesn't fit is cut with an ellipsis, so you can tell text is missing.
+      if (columns <= 28) expect(rows.some((row) => row.endsWith("…"))).toBe(true);
+    }
+  });
+
+  test("pickerHeight never exceeds the room it's given, and scrolls instead", () => {
+    expect(pickerHeight(100, 12)).toBe(12);
+    expect(pickerHeight(2, 12)).toBe(3 + 2 + 2);
+  });
+
+  test("ConfirmView, with and without a warning and the dry-run banner", () => {
+    const cases = [
+      { warning: null, dryRun: false, noChange: false },
+      { warning: null, dryRun: true, noChange: false },
+      { warning: "A fairly long warning that has to wrap across several lines of text.", dryRun: false, noChange: false },
+      { warning: "A fairly long warning that has to wrap across several lines of text.", dryRun: true, noChange: false },
+      { warning: "ignored when nothing changes", dryRun: true, noChange: true },
+    ];
+    // Including narrow widths, where the banner and the warning wrap onto more lines.
+    // (A narrow panel once cut the banner and squashed the warning's first line.)
+    for (const columns of [14, 20, 24, 30, 38, 44, 47, 60]) {
+      for (const flags of cases) {
+        const details = { field: "Status", from: "Todo", to: "In Progress", ...flags };
+        const height = confirmHeight(columns, details);
+        const out = lines(<ConfirmView title="T" issue={issue} {...details} width={columns} height={height} />, columns);
+        atLeast(out, height);
+        // Flexbox squashes blank spacing lines to make things fit, so an undercounted
+        // height would still show the text. Check the SPACING survived: a blank line
+        // above the banner, and above the warning.
+        const blankAbove = (needle: string) => {
+          const at = out.findIndex((l) => l.includes(needle));
+          expect(at).toBeGreaterThan(0);
+          expect(out[at - 1]?.trim()).toBe("");
+        };
+        if (flags.dryRun) blankAbove("DRY RUN");
+        if (flags.warning && !flags.noChange) blankAbove("⚠");
+        // Nothing may be cut: every word of the banner and of the warning is on screen.
+        const flat = out.join(" ").replace(/\s+/g, " ").replace(/│/g, "");
+        if (flags.dryRun) expect(flat).toContain("to Linear.");
+        if (flags.warning && !flags.noChange) expect(flat).toContain("lines of text.");
+        // The destination is the one thing that must always be readable on a confirm
+        // screen. (Below 20 columns even "→ ● In Progress" can't fit.)
+        if (columns >= 20 && !flags.noChange) expect(flat).toContain("In Progress");
+      }
+    }
+  });
+
+  test("MessageView, for short and long messages", () => {
+    for (const message of ["Saving…", "A much longer message that needs several lines to be shown in a narrow panel."]) {
+      for (const columns of [24, 40]) {
+        const height = messageHeight(columns, message);
+        atLeast(lines(<MessageView title="T" issue={issue} message={message} tone="info" hint="esc" width={columns} height={height} />, columns), height);
+      }
+    }
+  });
+});
+
+describe("Panel floating over another screen", () => {
+  const screen = (columns: number, rows: number, wanted: number) => {
+    const geometry = panelGeometry(columns, rows, wanted);
+    const under = Array.from({ length: rows }, () => "X".repeat(columns));
+    const out = renderToString(
+      <Box width={columns} height={rows}>
+        <Box flexDirection="column" width={columns} height={rows}>
+          {under.map((row, i) => (
+            <Text key={i}>{row}</Text>
+          ))}
+        </Box>
+        <Panel geometry={geometry}>
+          <Text>hello</Text>
+        </Panel>
+      </Box>,
+      { columns },
+    )
+      .replace(ANSI, "")
+      .split("\n");
+    return { out, geometry };
+  };
+
+  test("draws a border at the computed position", () => {
+    const { out, geometry: g } = screen(40, 14, 5);
+    expect(out[g.top]?.[g.left]).toBe("╭");
+    expect(out[g.top]?.[g.left + g.width - 1]).toBe("╮");
+    expect(out[g.top + g.height - 1]?.[g.left]).toBe("╰");
+    expect(out[g.top + g.height - 1]?.[g.left + g.width - 1]).toBe("╯");
+  });
+
+  test("covers EVERYTHING underneath it: no part of the screen below shows through", () => {
+    const { out, geometry: g } = screen(40, 14, 5);
+    for (let row = g.top + 1; row < g.top + g.height - 1; row++) {
+      const inside = (out[row] ?? "").slice(g.left + 1, g.left + g.width - 1);
+      expect(inside).not.toContain("X");
+    }
+    expect(out.join("\n")).toContain("hello"); // and its own content is drawn
+  });
+
+  test("leaves the screen untouched everywhere outside it", () => {
+    const { out, geometry: g } = screen(40, 14, 5);
+    for (let row = 0; row < 14; row++) {
+      const line = out[row] ?? "";
+      if (row < g.top || row >= g.top + g.height) expect(line).toBe("X".repeat(40)); // rows above and below
+      else {
+        expect(line.slice(0, g.left)).toBe("X".repeat(g.left)); // left of the panel
+        expect(line.slice(g.left + g.width)).toBe("X".repeat(40 - g.left - g.width)); // right of it
+      }
+    }
   });
 });

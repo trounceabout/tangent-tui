@@ -1,6 +1,6 @@
 // src/edit-screen.tsx
 // The edit flow for one issue: load the team's options -> pick -> confirm -> save.
-// It replaces the whole pane while open. The screens themselves are in
+// It floats as a panel over whatever screen you were on. The screens themselves are in
 // edit-views.tsx; the rules (what is offered, what is sent) are in edit.ts; the
 // write itself is in mutations.ts.
 //
@@ -11,9 +11,19 @@
 //  - if the chosen value is what the issue already has, nothing is sent
 
 import { useEffect, useRef, useState } from "react";
-import { Box, useInput, useWindowSize } from "ink";
+import type { ReactElement } from "react";
+import { useInput, useWindowSize } from "ink";
 import type { Key } from "ink";
-import { ConfirmView, MessageView, PickerView } from "./edit-views.tsx";
+import {
+  ConfirmView,
+  MessageView,
+  Panel,
+  PickerView,
+  confirmHeight,
+  messageHeight,
+  panelGeometry,
+  pickerHeight,
+} from "./edit-views.tsx";
 import {
   EDIT_FIELD,
   EDIT_TITLE,
@@ -168,59 +178,68 @@ export function EditScreen({
   });
 
   // ---- Drawing ----------------------------------------------------------------
-  const width = Math.max(10, columns - 2); // 1 column of padding each side
+  // The edit flow is a panel that floats, centred, over the screen below. The width
+  // depends only on the terminal; each stage then says how tall it needs to be; and
+  // the panel is sized and placed from that.
   const title = EDIT_TITLE[kind];
   const stage = stageRef.current;
-  const message = (text: string, tone: "info" | "error", hint: string) => (
-    <MessageView title={title} issue={issue} message={text} tone={tone} hint={hint} width={width} height={rows} />
-  );
+  const contentWidth = panelGeometry(columns, rows, 0).contentWidth;
+  const maxContent = Math.max(3, rows - 4); // leave a line above and below, plus the border
 
-  let screen;
+  // What to show: how many lines it wants, and how to draw it at a given height.
+  type View = { wanted: number; render: (height: number) => ReactElement };
+  const messageView = (text: string, tone: "info" | "error", hint: string): View => ({
+    wanted: messageHeight(contentWidth, text),
+    render: (height) => (
+      <MessageView title={title} issue={issue} message={text} tone={tone} hint={hint} width={contentWidth} height={height} />
+    ),
+  });
+
+  let view: View;
   if (stage.name === "loading") {
-    screen = message("Loading this team's options…", "info", "esc cancel");
+    view = messageView("Loading this team's options…", "info", "esc cancel");
   } else if (stage.name === "message") {
-    screen = message(stage.text, stage.error ? "error" : "info", "esc close");
+    view = messageView(stage.text, stage.error ? "error" : "info", "esc close");
   } else if (stage.name === "pick") {
-    screen = (
-      <PickerView
-        title={title}
-        issue={issue}
-        options={stage.options}
-        cursor={stage.cursor}
-        currentIndex={stage.options.findIndex((option) => isCurrent(kind, issue, option))}
-        width={width}
-        height={rows}
-      />
-    );
+    const { options, cursor } = stage;
+    view = {
+      wanted: pickerHeight(options.length, maxContent),
+      render: (height) => (
+        <PickerView
+          title={title}
+          issue={issue}
+          options={options}
+          cursor={cursor}
+          currentIndex={options.findIndex((option) => isCurrent(kind, issue, option))}
+          width={contentWidth}
+          height={height}
+        />
+      ),
+    };
   } else {
     const option = stage.options[stage.cursor];
     if (!option) return null; // can't happen: the cursor always points at an option
     if (stage.name === "saving") {
-      screen = message(isDryRun() ? "Simulating the change (dry run)…" : "Saving to Linear…", "info", "please wait");
+      view = messageView(isDryRun() ? "Simulating the change (dry run)…" : "Saving to Linear…", "info", "please wait");
     } else if (stage.name === "failed") {
-      screen = message(`Linear didn't apply the change: ${stage.message}`, "error", "enter retry  esc back  q cancel");
+      view = messageView(`Linear didn't apply the change: ${stage.message}`, "error", "enter retry  esc back  q cancel");
     } else {
-      screen = (
-        <ConfirmView
-          title={title}
-          issue={issue}
-          field={EDIT_FIELD[kind]}
-          from={currentLabel(kind, issue)}
-          to={option.label}
-          toColor={option.color}
-          warning={warningFor(kind, option)}
-          dryRun={isDryRun()}
-          noChange={isCurrent(kind, issue, option)}
-          width={width}
-          height={rows}
-        />
-      );
+      const details = {
+        field: EDIT_FIELD[kind],
+        from: currentLabel(kind, issue),
+        to: option.label,
+        toColor: option.color,
+        warning: warningFor(kind, option),
+        dryRun: isDryRun(),
+        noChange: isCurrent(kind, issue, option),
+      };
+      view = {
+        wanted: confirmHeight(contentWidth, details),
+        render: (height) => <ConfirmView title={title} issue={issue} {...details} width={contentWidth} height={height} />,
+      };
     }
   }
 
-  return (
-    <Box width={columns} height={rows} paddingX={1}>
-      {screen}
-    </Box>
-  );
+  const geometry = panelGeometry(columns, rows, view.wanted);
+  return <Panel geometry={geometry}>{view.render(geometry.contentHeight)}</Panel>;
 }
