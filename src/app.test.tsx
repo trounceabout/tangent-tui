@@ -160,7 +160,7 @@ async function startApp({ extraIssues = 0 } = {}) {
 describe("the app, before any editing", () => {
   test("loads and shows the board", async () => {
     const app = await startApp();
-    expect(app.screen()).toContain("LINEAR BOARD");
+    expect(app.screen()).toContain("TERMINAL VELOCITY");
     expect(app.screen()).toContain("PD-7");
     expect(app.screen()).toContain("Fix the thing");
     app.unmount();
@@ -275,7 +275,7 @@ describe("the edit panel floats over the list", () => {
     await app.press(KEY.j); // select PD-7
     await app.press("P");
     expect(app.screen()).toContain("Change priority");
-    expect(app.screen()).toContain("LINEAR BOARD"); // the list is still there, above the panel
+    expect(app.screen()).toContain("TERMINAL VELOCITY"); // the list is still there, above the panel
 
     await app.press(KEY.j, KEY.j); // moves the panel's cursor, not the list's
     await app.press(KEY.esc);
@@ -292,7 +292,7 @@ describe("the edit panel floats over the list", () => {
     await app.settle(700);
 
     expect(app.server.writes).toEqual([{ priority: 3 }]);
-    expect(app.screen()).toContain("LINEAR BOARD");
+    expect(app.screen()).toContain("TERMINAL VELOCITY");
     expect(app.rowsOf().at(-1)).toContain("✓ PD-7: High → Medium");
     app.unmount();
   });
@@ -334,7 +334,7 @@ describe("the ? help panel", () => {
     await app.press("?");
     expect(app.screen()).toContain("Keyboard help");
     expect(app.screen()).toContain("On the board");
-    expect(app.rowsOf()[0]).toContain("LINEAR BOARD"); // the board is still there, above the panel
+    expect(app.rowsOf()[0]).toContain("TERMINAL VELOCITY"); // the board is still there, above the panel
 
     await app.press(KEY.j, KEY.j, KEY.k); // scroll the HELP, not the board
     await app.press(KEY.esc);

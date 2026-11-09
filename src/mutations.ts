@@ -7,8 +7,9 @@
 //  - only three fields can ever be changed: status, priority, estimate
 //  - one issue per call, never a batch
 //  - Linear's reply is checked against what we asked for
-//  - LINEAR_TUI_DRY_RUN=1 sends nothing at all (for trying the UI safely)
+//  - TERMINAL_VELOCITY_DRY_RUN=1 sends nothing at all (for trying the UI safely)
 
+import { dryRunRequested } from "./env.ts";
 import { cleanText, isFinished, linearQuery, safeColor } from "./linear.ts";
 
 // ---------------------------------------------------------------------------
@@ -190,8 +191,8 @@ type UpdateData = {
 export type UpdatedIssue = NonNullable<UpdateData["issueUpdate"]["issue"]>;
 export type UpdateResult = { dryRun: true } | { dryRun: false; issue: UpdatedIssue };
 
-// With LINEAR_TUI_DRY_RUN=1 nothing is ever sent. Useful for trying the screens.
-export const isDryRun = (): boolean => process.env.LINEAR_TUI_DRY_RUN === "1";
+// With TERMINAL_VELOCITY_DRY_RUN=1 (or the old LINEAR_TUI_DRY_RUN=1) nothing is ever sent. Useful for trying the screens.
+export const isDryRun = (): boolean => dryRunRequested();
 
 export async function updateIssue(apiKey: string, identifier: string, change: IssueChange): Promise<UpdateResult> {
   const input = validateChange(identifier, change); // throws BEFORE anything is sent

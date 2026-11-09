@@ -193,7 +193,7 @@ export function CycleHeader({ cycles, doneColor }: { cycles: CycleProgress[]; do
       {/* wrap="truncate-end" on these lines: the app's scroll math assumes this header is
           exactly 3 + one line per cycle, so nothing in it may wrap at a narrow width. */}
       <Text wrap="truncate-end">
-        <Text bold>LINEAR BOARD</Text>
+        <Text bold>TERMINAL VELOCITY</Text>
         <Text dimColor> my current cycles</Text>
       </Text>
       <Box flexDirection="column" marginTop={1}>

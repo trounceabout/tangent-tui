@@ -1,4 +1,4 @@
-# linear-tui
+# Terminal Velocity
 
 A full-screen terminal app (Bun + TypeScript + Ink 8) showing my Linear issues from all active cycles. macOS only. See `README.md` for setup and keys.
 
@@ -22,13 +22,14 @@ A full-screen terminal app (Bun + TypeScript + Ink 8) showing my Linear issues f
 - `src/panel.tsx` the floating panel shared by the edit flow and the help: `Panel`, `panelGeometry`, `PanelHeader` (the colored title bar), `PanelFooter`. See "The edit panel is an overlay" below.
 - `src/help.ts` the content of the `?` help: which keys do what on the board and on the detail screen (pure data). `src/help-screen.tsx` the help panel (`HelpView`, `HelpScreen`), which scrolls when the pane is short.
 - `src/mouse.ts` MOUSE input: `parseMouse()` (SGR reports) and `createMouseInput()`, a filter stream between the real stdin and Ink, plus on/off control of the terminal's mouse mode. `src/mouse-context.ts` hands events to components (`useMouse`, `useMouseApi`). `src/list-layout.ts` pure arithmetic for the list: item offsets and which item a screen row is on (clicks).
+- `src/env.ts` the environment switches (dry run, mouse off). Each has a `TERMINAL_VELOCITY_*` name and the old `LINEAR_TUI_*` name; dry run is ON if either says `1`.
 - `src/keys.ts` `expandBurst()`: see the input gotcha below.
 - `src/theme.ts` the few colors Linear's API doesn't provide.
 - `src/open.ts` opens links with macOS `open` (https only).
 
 ## Conventions and gotchas
 
-- **Colors come from Linear's own palette** (`state.color`, `labels.color` from the API), not the Undercurrent design system. The few in `theme.ts` (urgent orange, bar gray, overdue red) were matched by eye, not sampled.
+- **Colors come from Linear's own palette** (`state.color`, `labels.color` from the API), not any other design system. The few in `theme.ts` (urgent orange, bar gray, overdue red) were matched by eye, not sampled.
 - **Estimates follow each team's scale** via `team.issueEstimationType`. PD and UC are T-shirt (XS=1, S=2, M=3, L=5, XL=8). 0 or null means no estimate.
 - **Flexbox: set `flexShrink={0}` on anything with a fixed size.** Ink shrinks children by default, which wrapped issue IDs and squashed two-line rows (their detail line spilled onto the next row). Fixed-width columns and stacked row blocks all need it.
 - **Scrolling works in whole items**, not lines. `issueHeight()` in `components.tsx` must match when `IssueRow` draws its detail line.
@@ -50,17 +51,17 @@ This is the only part of the app that changes shared company data, so treat it a
 - Only three fields can change: status (`stateId`), priority, estimate. One issue per call, never a batch. Unknown fields are rejected.
 - `validateChange()` runs BEFORE anything is sent. Invalid input, an unknown field, or dry-run mode must produce zero network requests (the tests assert this).
 - The reply is checked against the request: `success: false` or a different value than asked for is an error, not a silent success.
-- `LINEAR_TUI_DRY_RUN=1` sends nothing. Use it to try the screens. Any manual test of a real write needs the user's explicit go-ahead on a named throwaway issue.
+- `TERMINAL_VELOCITY_DRY_RUN=1` sends nothing (the old `LINEAR_TUI_DRY_RUN=1` still works too: either turns it on). Use it to try the screens. Any manual test of a real write needs the owner's explicit go-ahead on a named throwaway issue.
 - Statuses come from the ISSUE'S OWN team (PD and UC differ). Estimates are T-shirt teams only; other scales say "not supported".
-- Finishing statuses (completed, canceled, duplicate) get an extra warning: the user's process needs a validation comment before work is called done.
+- Finishing statuses (completed, canceled, duplicate) get an extra warning: some teams need a validation comment before work is called done.
 - The edit screen sends nothing until Enter on the CONFIRM screen. The save is guarded three ways (the stage check in `handleKey`, the stage check in `save()`, and `savingRef`), so a second Enter can't send a second write. These overlap on purpose, so removing one alone changes nothing (an "equivalent mutant"): to test them, remove all three.
-- When you manually try the edit flow in a real pane, ALWAYS start it with `LINEAR_TUI_DRY_RUN=1` and check the `DRY RUN` banner is on screen before pressing Enter on a confirm screen.
+- When you manually try the edit flow in a real pane, ALWAYS start it with `TERMINAL_VELOCITY_DRY_RUN=1` and check the `DRY RUN` banner is on screen before pressing Enter on a confirm screen.
 
 ## Mouse
 
 - **Ink drops mouse reports** before its input handlers see them, so `index.tsx` puts `createMouseInput` between `process.stdin` and Ink. Events reach components through `MouseContext`, not `useInput`. Without a provider (most tests) the context is inert.
 - Mouse mode (`ESC[?1000h ESC[?1006h`) MUST be switched off on every exit path (quit, SIGTERM, SIGHUP, crash): `exitHooks: true` plus `close()` after `waitUntilExit()`. A terminal left in mouse mode prints click codes into the shell.
-- **Mouse mode disables the terminal's own text selection.** That is why `m` toggles it and `LINEAR_TUI_MOUSE=0` starts it off. Keep both.
+- **Mouse mode disables the terminal's own text selection.** That is why `m` toggles it and `TERMINAL_VELOCITY_MOUSE=0` starts it off. Keep both.
 - The list is scrolled by LINES (`scrollTop`), independent of the highlight. Keyboard moves scroll just far enough to show the highlight. The list click handler maps screen row to item with `list-layout.ts`; the header height is computed (`headerHeight`), so keep it in sync with what is drawn.
 - **A click never writes.** In the edit panel a click can cancel or move to the confirm screen. Only Enter on the confirm screen saves, and a test asserts no write request is sent from clicks.
 - Tests: `mountTerminal(node, { mouse: true })` gives `click(x, y, button?)`, `wheel(direction, x, y)` and `mouseWrites`. Coordinates are 0-based screen cells.
@@ -85,7 +86,7 @@ The edit flow floats over whichever screen is showing (list or detail); the scre
 - The confirm screen stacks the change on three lines when it doesn't fit on one, so the DESTINATION is never cut off.
 - Under 100 columns the panel takes the full width. A margin there only reveals stray fragments of the screen below, which look like glitches. From 100 columns it floats, centred, at most 64 wide.
 - **The look**, so it stays pronounced: heavy `━`/`┃` lines with ROUNDED corners (a custom `borderStyle` object, since Ink has no built-in heavy-round style), in the accent `PANEL_ACCENT` (`theme.ts`, Linear's purple-blue, readable on light and dark terminals), and a title bar with the accent as its background (a negative `marginX` makes it run edge to edge past the panel's padding).
-- **No drop shadow, on purpose.** A `░` shadow was tried and removed: the user's terminal draws it as a heavy solid gray block, which looked clunky. A test asserts no `░` is drawn. Don't add one back.
+- **No drop shadow, on purpose.** A `░` shadow was tried and removed: one terminal draws it as a heavy solid gray block, which looked clunky. A test asserts no `░` is drawn. Don't add one back.
 - Colors don't show in plain-text test output (Ink strips them), so the tests check the characters (border, title). To check actual colors, capture a real pane with `rex capture --format=vt` and grep for the escape codes (`38;2;94;106;210` is the accent foreground, `48;2;94;106;210` its background).
 - Check the panel on a real narrow pane in dry-run. The first real look at a 32-column pane found three bugs the tests had missed.
 

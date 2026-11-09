@@ -1,5 +1,5 @@
 {
-  "name": "linear-tui",
+  "name": "terminal-velocity",
   "module": "index.tsx",
   "type": "module",
   "private": true,
@@ -7,11 +7,12 @@
     "start": "bun index.tsx",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "lint": "bunx oxlint@latest ."
+    "lint": "oxlint ."
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "@types/react": "^19.3.0"
+    "@types/bun": "1.4.4",
+    "@types/react": "^19.3.0",
+    "oxlint": "1.93.0"
   },
   "peerDependencies": {
     "typescript": "^5"

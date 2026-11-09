@@ -1,11 +1,15 @@
-# linear-tui
+# Terminal Velocity
 
-A full-screen terminal app (in the spirit of lazygit) that shows **my Linear issues from every currently active cycle**, grouped by status and sorted by priority.
+A full-screen terminal app (in the spirit of lazygit) that shows **your Linear issues from every currently active cycle**, grouped by status and sorted by priority.
 
 - Cycle progress bars with days left
 - Status groups in Linear's own colors, foldable
 - Priority icons, T-shirt (or point) estimates, labels, due dates
 - Keyboard-driven, auto-refreshes every 60 seconds
+
+> **Unofficial.** Terminal Velocity is an independent project. It is not made by, affiliated with or endorsed by Linear. "Linear" is a trademark of its owner.
+>
+> **It can change your issues.** You can change an issue's status, priority and estimate from inside the app, using your own Linear API key. Nothing is sent until you confirm, and `TERMINAL_VELOCITY_DRY_RUN=1` lets you try every screen without sending anything. See [SECURITY.md](SECURITY.md).
 
 Built with [Bun](https://bun.sh), TypeScript and [Ink](https://github.com/vadimdemedes/ink) (React for the terminal).
 
@@ -78,7 +82,7 @@ After a change you stay on the screen you were on, and it shows Linear's new val
 - If Linear refuses (for example your API key is read-only), the error is shown, nothing changes, and `Enter` retries.
 - After a change the board reloads from Linear, so it shows what Linear really has.
 
-**Try it safely:** start the app with `LINEAR_TUI_DRY_RUN=1 bun run start`. Every screen works and the footer shows `DRY RUN`, but nothing is ever sent.
+**Try it safely:** start the app with `TERMINAL_VELOCITY_DRY_RUN=1 bun run start`. Every screen works and the footer shows `DRY RUN`, but nothing is ever sent. (The app used to be called linear-tui, so the old `LINEAR_TUI_DRY_RUN` and `LINEAR_TUI_MOUSE` names still work too.)
 
 Your API key needs **write** permission for changes to succeed; reading the board only needs read access.
 
@@ -107,7 +111,7 @@ The mouse works alongside the keys.
 | Edit panel: click an option | Go to the confirm screen (a click never saves; only `Enter` on the confirm screen does) |
 | `m` | Mouse on / off |
 
-**Text selection:** while the mouse is on, the terminal sends clicks to the app instead of selecting text. Press `m` to switch it off and select or copy as usual (the status line shows `mouse off`), or start with `LINEAR_TUI_MOUSE=0`. It is always switched off when the app quits.
+**Text selection:** while the mouse is on, the terminal sends clicks to the app instead of selecting text. Press `m` to switch it off and select or copy as usual (the status line shows `mouse off`), or start with `TERMINAL_VELOCITY_MOUSE=0`. It is always switched off when the app quits.
 
 ## Development
 
@@ -118,3 +122,7 @@ bun run lint        # oxlint
 ```
 
 See `CLAUDE.md` for how the code is organized.
+
+## License
+
+[MIT](LICENSE)

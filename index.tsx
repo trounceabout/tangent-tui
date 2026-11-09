@@ -4,16 +4,17 @@
 //
 // Mouse: a filter sits between the real keyboard and Ink. It pulls mouse reports out of
 // the input (Ink would drop them) and hands them to the app through MouseContext.
-// LINEAR_TUI_MOUSE=0 starts with the mouse off (the `m` key switches it back on).
+// TERMINAL_VELOCITY_MOUSE=0 starts with the mouse off (the `m` key switches it back on).
 // exitHooks makes sure the terminal's mouse mode is switched off however we exit.
 
 import { render } from "ink";
 import { App } from "./src/app.tsx";
+import { mouseStartsOff } from "./src/env.ts";
 import { createMouseInput } from "./src/mouse.ts";
 import { MouseContext, mouseApiFor } from "./src/mouse-context.ts";
 
 const mouse = createMouseInput(process.stdin, process.stdout, {
-  enabled: process.env.LINEAR_TUI_MOUSE !== "0",
+  enabled: !mouseStartsOff(),
   exitHooks: true,
 });
 
