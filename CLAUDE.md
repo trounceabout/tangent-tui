@@ -5,7 +5,7 @@ A full-screen terminal app (Bun + TypeScript + Ink 8) showing my Linear issues f
 ## Commands
 
 - `bun run start` runs the app (needs a real terminal; Ink uses raw mode)
-- `bun run typecheck` and `bun run lint` must both be clean before committing
+- `bun test`, `bun run typecheck` and `bun run lint` must all be clean before committing
 - Use `bun`, not npm/node
 
 ## Layout
@@ -37,6 +37,18 @@ A full-screen terminal app (Bun + TypeScript + Ink 8) showing my Linear issues f
 - Ink 8 is newer than most references. Check `node_modules/ink/readme.md` for exact APIs instead of guessing.
 - The API key lives only in the macOS Keychain (service `linear-api-key`). Never write it to a file, env var, log, or chat.
 
-## Testing in Rex
+## Tests (`bun test`)
+
+One `*.test.ts(x)` file per module. They use made-up data and a fake network, never real Linear or the Keychain, so they're fast and anyone can run them.
+
+- `src/testing.ts` has the shared helpers: `makeIssue()`, `labels()`, `mockFetch()` (swap `fetch`; restore it in `afterEach`), and `hasControlChars()`. It is not part of the app.
+- **Component tests** use Ink's `renderToString(element, { columns })`. Render inside a **column** box of the pane's width, like the real app does; a default row box lets `flexShrink={0}` children overflow and hides the bugs you're looking for. To measure how tall a component really is, stack a marker under it (`heightOf`) and see which line it lands on. `issueHeight()` and `CycleHeader`'s height must match what's drawn, because the scroll math multiplies on them.
+- The squash regression needs 3 two-line rows in a 4-line box; with only 2 rows the rounding hides it.
+- Time-dependent tests use `setSystemTime` and build dates in local time, so they pass in any timezone.
+- `open.test.ts` spies on `Bun.spawn`, so no real browser ever launches.
+- Timing tests (ReDoS) use a generous 500 ms limit; the bug they guard took 3.5 s at 100 KB. `inline()` is exported so the regex bounds are tested **separately** from the line cap that also protects `renderMarkdown`.
+- **A test that has never failed proves nothing.** When you add a safety or layout test, temporarily break the code it guards and confirm the test fails. That check found two tests that couldn't fail when this suite was written.
+
+## Testing the real app in Rex
 
 Run the app in a Rex pane and drive it: `rex send-key -b BLOCK j tab enter` (capitals need `shift+g`), then `rex capture -b BLOCK` to read the screen. `rex capture --format=vt` shows the terminal's real state, which is what exposed overlapping rows once.

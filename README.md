@@ -76,6 +76,7 @@ Shows the issue's status, priority, estimate, due date, assignee, project and la
 ## Development
 
 ```sh
+bun test            # 171 tests, about a quarter of a second; no network or Keychain needed
 bun run typecheck   # tsc --noEmit (strict, with noUncheckedIndexedAccess)
 bun run lint        # oxlint
 ```

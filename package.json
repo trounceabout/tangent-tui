@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "start": "bun index.tsx",
+    "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "bunx oxlint@latest ."
   },

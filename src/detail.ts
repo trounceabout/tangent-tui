@@ -194,7 +194,7 @@ function chop(text: string, width: number): string[] {
 // "![" makes every start scan to the end of the text, which is quadratic: 100 KB
 // of "![" took ~3.5 s and 1 MB would take minutes. Bounded, each start costs a
 // fixed amount, so the total stays linear.
-const inline = (text: string) =>
+export const inline = (text: string) =>
   text
     .replace(/!\[([^\]]{0,200})\]\([^)]{0,2000}\)/g, (_match, alt: string) => (alt ? `[image: ${alt}]` : "[image]"))
     .replace(/\[([^\]]{1,200})\]\([^)]{0,2000}\)/g, "$1")
