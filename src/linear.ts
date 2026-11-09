@@ -70,7 +70,7 @@ export function cleanMultiline(text: string): string {
 
 // Colors go straight into the UI, so only accept a plain "#rrggbb" hex code.
 const FALLBACK_COLOR = "#8a8f98";
-const safeColor = (color: string) => (/^#[0-9a-fA-F]{6}$/.test(color) ? color : FALLBACK_COLOR);
+export const safeColor = (color: string) => (/^#[0-9a-fA-F]{6}$/.test(color) ? color : FALLBACK_COLOR);
 
 // Return a copy of an issue with every network-supplied string cleaned.
 function sanitizeIssue(issue: Issue): Issue {
@@ -199,6 +199,7 @@ const TYPE_RANK: Record<string, number> = {
   triage: 3,
   completed: 4,
   canceled: 5,
+  duplicate: 6, // this workspace has a "Duplicate" status with its own type
 };
 
 // A status type we don't recognise sorts to the end rather than crashing.
@@ -212,7 +213,7 @@ const priorityRank = (p: number) => (p === 0 ? 5 : p);
 export const COLLAPSED_STATUSES = new Set(["Done", "Canceled", "Duplicate"]);
 
 // Finished work gets muted styling.
-export const isFinished = (type: string) => type === "completed" || type === "canceled";
+export const isFinished = (type: string) => type === "completed" || type === "canceled" || type === "duplicate";
 
 // Group by status name, order the groups like Linear does, and sort the issues
 // inside each group by priority (then by issue number).

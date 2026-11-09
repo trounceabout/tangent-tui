@@ -176,6 +176,15 @@ describe("groupIssues", () => {
     expect(groups.map((g) => g.name)).toEqual(["Canceled", "Weird"]);
   });
 
+  test("a Duplicate status (its own type in this workspace) sorts after Canceled", () => {
+    const groups = groupIssues([
+      makeIssue({ identifier: "PD-1", state: status("Duplicate", "duplicate") }),
+      makeIssue({ identifier: "PD-2", state: status("Canceled", "canceled") }),
+      makeIssue({ identifier: "PD-3", state: status("Done", "completed") }),
+    ]);
+    expect(groups.map((g) => g.name)).toEqual(["Done", "Canceled", "Duplicate"]);
+  });
+
   test("merges issues with the same status name into one group", () => {
     const groups = groupIssues([makeIssue({ identifier: "PD-1" }), makeIssue({ identifier: "UC-2" })]);
     expect(groups).toHaveLength(1);
@@ -323,8 +332,8 @@ describe("formatDue", () => {
 });
 
 describe("small helpers", () => {
-  test("isFinished is true only for completed and canceled", () => {
-    expect(["completed", "canceled"].map(isFinished)).toEqual([true, true]);
+  test("isFinished is true for completed, canceled and duplicate", () => {
+    expect(["completed", "canceled", "duplicate"].map(isFinished)).toEqual([true, true, true]);
     expect(["started", "unstarted", "backlog", "triage"].map(isFinished)).toEqual([false, false, false, false]);
   });
 

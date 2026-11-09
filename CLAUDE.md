@@ -17,6 +17,7 @@ A full-screen terminal app (Bun + TypeScript + Ink 8) showing my Linear issues f
 - `src/detail.ts` DETAIL data: fetches one issue's description + comments, orders comments as threads, wraps markdown-ish text into plain lines (`wrapText`, `renderMarkdown`, `buildBodyLines`). No styling code.
 - `src/detail-view.tsx` the detail screen (pinned header, scrolling body, footer). Loads its own data.
 - `src/filter.ts` FILTER logic, pure functions (`filterIssues`, `parseQuery`, `nextTeam/nextLabel/nextPriority`, `describeFilters`). The `/` search bar edits `filters.query`; `t`, `p`, `L` cycle the other filters. `app.tsx` has a second `useInput` for the search bar, active only while `searching`, where every key is text.
+- `src/mutations.ts` the ONLY file that writes to Linear (status, priority, estimate). See "Writes" below.
 - `src/keys.ts` `expandBurst()`: see the input gotcha below.
 - `src/theme.ts` the few colors Linear's API doesn't provide.
 - `src/open.ts` opens links with macOS `open` (https only).
@@ -36,6 +37,18 @@ A full-screen terminal app (Bun + TypeScript + Ink 8) showing my Linear issues f
 - `tsconfig` has `noUncheckedIndexedAccess`: `array[i]` may be undefined, so handle it.
 - Ink 8 is newer than most references. Check `node_modules/ink/readme.md` for exact APIs instead of guessing.
 - The API key lives only in the macOS Keychain (service `linear-api-key`). Never write it to a file, env var, log, or chat.
+
+## Writes (changing issues in Linear)
+
+This is the only part of the app that changes shared company data, so treat it as high risk. Don't loosen these rules:
+
+- All writes live in `src/mutations.ts`. Nothing else may send a mutation.
+- Only three fields can change: status (`stateId`), priority, estimate. One issue per call, never a batch. Unknown fields are rejected.
+- `validateChange()` runs BEFORE anything is sent. Invalid input, an unknown field, or dry-run mode must produce zero network requests (the tests assert this).
+- The reply is checked against the request: `success: false` or a different value than asked for is an error, not a silent success.
+- `LINEAR_TUI_DRY_RUN=1` sends nothing. Use it to try the screens. Any manual test of a real write needs the user's explicit go-ahead on a named throwaway issue.
+- Statuses come from the ISSUE'S OWN team (PD and UC differ). Estimates are T-shirt teams only; other scales say "not supported".
+- Finishing statuses (completed, canceled, duplicate) get an extra warning: the user's process needs a validation comment before work is called done.
 
 ## Tests (`bun test`)
 
