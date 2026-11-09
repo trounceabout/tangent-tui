@@ -13,10 +13,11 @@ import { buildBodyLines, fetchIssueDetail, wrapText } from "./detail.ts";
 import type { IssueDetail } from "./detail.ts";
 import { PriorityGlyph, fitLabels } from "./components.tsx";
 import { openInBrowser } from "./open.ts";
+import type { EditKind } from "./edit.ts";
 
 const PRIORITY_NAMES = ["No priority", "Urgent", "High", "Medium", "Low"];
 const MAX_TITLE_LINES = 3;
-const FOOTER_HEIGHT = 2;
+const FOOTER_HEIGHT = 3; // two lines of key hints + one status line
 
 // What we know about loading this issue's details.
 type LoadState =
@@ -24,7 +25,15 @@ type LoadState =
   | { status: "error"; message: string }
   | { status: "ready"; detail: IssueDetail };
 
-export function DetailView({ issue, onClose }: { issue: Issue; onClose: () => void }) {
+export function DetailView({
+  issue,
+  onClose,
+  onEdit,
+}: {
+  issue: Issue;
+  onClose: () => void;
+  onEdit: (kind: EditKind) => void; // opens the edit screen (it confirms before changing anything)
+}) {
   const { columns, rows } = useWindowSize();
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [top, setTop] = useState(0); // index of the first visible body line
@@ -88,6 +97,10 @@ export function DetailView({ issue, onClose }: { issue: Issue; onClose: () => vo
     else if (input === "g" || key.home) scrollTo(0);
     else if (input === "G" || key.end) scrollTo(maxTop);
     else if (input === "o") openInBrowser(issue.url);
+    // s / P / e change status / priority / estimate. Opens the edit screen only.
+    else if (input === "s") onEdit("status");
+    else if (input === "P") onEdit("priority");
+    else if (input === "e") onEdit("estimate");
   };
   // A chunk like "jjj" counts as three presses (see keys.ts).
   useInput((input, key) => {
@@ -171,6 +184,9 @@ export function DetailView({ issue, onClose }: { issue: Issue; onClose: () => vo
       <Box flexDirection="column" flexShrink={0}>
         <Text dimColor wrap="truncate-end">
           {"↑↓ scroll  space page  o open  esc back"}
+        </Text>
+        <Text dimColor wrap="truncate-end">
+          {"change: s status  P priority  e estimate"}
         </Text>
         <Text dimColor wrap="truncate-end">
           {lines.length > 0

@@ -37,10 +37,12 @@ export type SeenRequest = {
 
 // Replace the global `fetch` with a fake for one test. `respond` gets each request
 // and returns either a plain object (sent back as JSON) or a ready-made Response.
+// `delayMs` makes every reply slow, to test what happens while a request is in flight.
 // Returns a function that puts the real fetch back; call it in afterEach.
-export function mockFetch(respond: (request: SeenRequest) => unknown): () => void {
+export function mockFetch(respond: (request: SeenRequest) => unknown, options: { delayMs?: number } = {}): () => void {
   const original = globalThis.fetch;
   globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    if (options.delayMs) await new Promise((resolve) => setTimeout(resolve, options.delayMs));
     const body = JSON.parse(String(init?.body ?? "{}")) as { query: string; variables: Record<string, unknown> };
     const result = respond({
       query: body.query,

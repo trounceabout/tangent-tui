@@ -11,6 +11,9 @@ import { COLLAPSED_STATUSES, cleanText, cycleProgress, fetchIssues, getApiKey, g
 import type { Issue, StatusGroup } from "./linear.ts";
 import { CycleHeader, GroupHeader, IssueRow, issueHeight } from "./components.tsx";
 import { DetailView } from "./detail-view.tsx";
+import { EditScreen } from "./edit-screen.tsx";
+import type { EditKind } from "./edit.ts";
+import { isDryRun } from "./mutations.ts";
 import { openInBrowser } from "./open.ts";
 import {
   MAX_QUERY_CHARS,
@@ -25,7 +28,7 @@ import {
 import type { Filters } from "./filter.ts";
 
 const REFRESH_MS = 60_000;
-const FOOTER_HEIGHT = 3; // two lines of key hints + one status line
+const FOOTER_HEIGHT = 4; // three lines of key hints + one status line
 const NO_FOLDS = new Set<string>(); // "nothing is folded", used while filtering
 
 // ---------------------------------------------------------------------------
@@ -81,6 +84,12 @@ export function App() {
   // whether the search bar is open and taking typed input.
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [searching, setSearching] = useState(false);
+  // The issue and field being edited (status, priority or estimate), or null. While
+  // set, the edit screen replaces everything else.
+  const [editing, setEditing] = useState<{ issue: Issue; kind: EditKind } | null>(null);
+  // A short confirmation after a change ("PD-3066: Todo → In Progress"), shown in
+  // the footer for a few seconds.
+  const [flash, setFlash] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setRefreshing(true);
@@ -104,6 +113,14 @@ export function App() {
     const timer = setInterval(() => void load(), REFRESH_MS);
     return () => clearInterval(timer);
   }, [load]);
+
+  // Clear the confirmation message after 8 seconds. The returned function cancels
+  // the timer if a newer message arrives first.
+  useEffect(() => {
+    if (flash === null) return;
+    const timer = setTimeout(() => setFlash(null), 8_000);
+    return () => clearTimeout(timer);
+  }, [flash]);
 
   // --- Derived data (recomputed only when its inputs change) -----------------
   const filtering = isFiltering(filters);
@@ -192,6 +209,11 @@ export function App() {
     else if (input === "r") void load();
     // o = open the selected issue in the browser (does nothing on a status header).
     else if (input === "o" && selectedItem?.kind === "issue") openInBrowser(selectedItem.issue.url);
+    // s / P / e change the selected issue's status / priority / estimate. This only
+    // OPENS the edit screen: nothing is sent until you confirm there.
+    else if (input === "s" && selectedItem?.kind === "issue") setEditing({ issue: selectedItem.issue, kind: "status" });
+    else if (input === "P" && selectedItem?.kind === "issue") setEditing({ issue: selectedItem.issue, kind: "priority" });
+    else if (input === "e" && selectedItem?.kind === "issue") setEditing({ issue: selectedItem.issue, kind: "estimate" });
     // Enter on an issue opens its detail screen.
     else if (key.return && selectedItem?.kind === "issue") setDetailIssue(selectedItem.issue);
     // Enter / space on a status header toggles its fold.
@@ -207,7 +229,7 @@ export function App() {
     (input, key) => {
       for (const char of expandBurst(input)) handleKey(char, key);
     },
-    { isActive: detailIssue === null && !searching },
+    { isActive: detailIssue === null && !searching && editing === null },
   );
 
   // While the search bar is open, typed characters go INTO the query instead of
@@ -263,9 +285,37 @@ export function App() {
 
   const time = updatedAt?.toLocaleTimeString("en-GB") ?? "";
 
+  // The edit screen replaces everything while it's open. Cancelling returns to
+  // wherever you were (the list, or the detail screen). After a change is applied we
+  // go back to the list, show a confirmation, and reload so the board shows what
+  // Linear really has.
+  if (editing) {
+    return (
+      <EditScreen
+        issue={editing.issue}
+        kind={editing.kind}
+        onCancel={() => setEditing(null)}
+        onDone={(message) => {
+          setEditing(null);
+          setDetailIssue(null);
+          setFlash(message);
+          void load();
+        }}
+      />
+    );
+  }
+
   // The detail screen replaces the list while it's open. (The list's state, like
   // the selection and scroll position, is kept, so closing puts you right back.)
-  if (detailIssue) return <DetailView issue={detailIssue} onClose={() => setDetailIssue(null)} />;
+  if (detailIssue) {
+    return (
+      <DetailView
+        issue={detailIssue}
+        onClose={() => setDetailIssue(null)}
+        onEdit={(kind) => setEditing({ issue: detailIssue, kind })}
+      />
+    );
+  }
 
   return (
     // The whole screen: a column exactly as big as the terminal.
@@ -329,7 +379,7 @@ export function App() {
           </Text>
         ) : (
           <Text dimColor wrap="truncate-end">
-            {"↑↓ move  tab group  ⏎ open/fold  o web  / find"}
+            {"↑↓ move  tab group  ⏎ open  o web  q quit"}
           </Text>
         )}
         <Text dimColor wrap="truncate-end">
@@ -337,9 +387,14 @@ export function App() {
             ? "enter keep  esc clear  ↑↓ move"
             : filtering
               ? "esc clear  / edit  t team  p prio  L label"
-              : "t team  p prio  L label  r refresh  q quit"}
+              : "filter: / find  t team  p prio  L label"}
+        </Text>
+        <Text dimColor wrap="truncate-end">
+          {searching ? " " : "change: s status  P prio  e est  r reload"}
         </Text>
         <Text wrap="truncate-end">
+          {isDryRun() ? <Text color="cyan">DRY RUN  </Text> : null}
+          {flash ? <Text color="green">{`✓ ${flash}  `}</Text> : null}
           {error ? <Text color="red">{`${error}  `}</Text> : null}
           <Text dimColor>
             {`${hasAbove ? "▲ " : ""}${hasBelow ? "▼ " : ""}${refreshing ? "refreshing…" : time ? `updated ${time}` : ""}`}

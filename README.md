@@ -46,6 +46,7 @@ bun run start
 | `/` | Search (see Filtering below) |
 | `t` / `p` / `L` | Cycle the team / priority / label filter |
 | `Esc` | Clear all filters |
+| `s` / `P` / `e` | Change the selected issue's status / priority / estimate (see below) |
 | `r` | Refresh now |
 | `q` | Quit |
 
@@ -60,6 +61,23 @@ Press `/` and type. The list narrows as you type; `Enter` keeps the filter and r
 | `team:pd` (or `t:pd`) | Issues from that team |
 
 The `t`, `p` and `L` keys step through values (all → first → second → … → all). `p` means *at least this urgent*: Urgent, then High and above, then Medium and above. Issues with no priority never match a priority filter. Filters combine, and while any filter is on, folded groups (Done, Canceled) are opened so matches there aren't hidden. The cycle progress bars always count all your issues.
+
+### Changing an issue
+
+> **This changes real data in Linear.** Teammates see it, and automations or notifications may fire.
+
+With an issue selected (in the list or the detail screen), press `s` (status), `P` (priority, capital) or `e` (estimate). Pick a value with `↑↓` and `Enter`, then **confirm** on the next screen, which shows exactly what will change (`Status  Todo → In Progress`). Nothing is sent until that second `Enter`.
+
+- Statuses are the issue's **own team's** (they differ between teams).
+- Estimates work for T-shirt teams only; other scales say "not supported yet".
+- Moving to a finishing status (Done, Canceled, Duplicate, Ready to Release) shows an extra warning.
+- Choosing the value the issue already has sends nothing.
+- If Linear refuses (for example your API key is read-only), the error is shown, nothing changes, and `Enter` retries.
+- After a change the board reloads from Linear, so it shows what Linear really has.
+
+**Try it safely:** start the app with `LINEAR_TUI_DRY_RUN=1 bun run start`. Every screen works and the footer shows `DRY RUN`, but nothing is ever sent.
+
+Your API key needs **write** permission for changes to succeed; reading the board only needs read access.
 
 ### Detail screen
 
