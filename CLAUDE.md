@@ -10,7 +10,8 @@ A full-screen terminal app (Bun + TypeScript + Ink 8) showing my Linear issues f
 
 ## Layout
 
-- `index.tsx` entry point. Renders `<App />` with `alternateScreen: true`.
+- `index.tsx` entry point and the `terminal-velocity` command (`bin` in `package.json`, `#!/usr/bin/env bun`, must stay executable). Handles `--help`/`--version` first, then loads the UI with `await import` (so those flags never touch raw mode) and renders `<App />` with `alternateScreen: true`.
+- `src/cli.ts` command-line arguments: `parseArgs`, `helpText`, `versionText`. Pure; unknown options are an error, never a silent start. The version comes from `package.json`.
 - `src/linear.ts` DATA layer: Keychain key, GraphQL fetch, grouping/sorting, cycle progress, estimate and due-date formatting. Returns plain values only. No terminal or styling code here.
 - `src/components.tsx` visual pieces (`IssueRow`, `GroupHeader`, `CycleHeader`).
 - `src/app.tsx` state, keyboard handling, scrolling, screen layout.

@@ -35,6 +35,15 @@ security add-generic-password -a "$USER" -s linear-api-key -w
 bun run start
 ```
 
+Or install it as a command, so you can run it from any folder:
+
+```sh
+bun link            # once, from inside the repo
+terminal-velocity   # start the app
+terminal-velocity --help      # usage and environment switches
+terminal-velocity --version
+```
+
 ## Keys
 
 | Key | Action |
