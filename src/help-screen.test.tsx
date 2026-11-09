@@ -113,13 +113,13 @@ describe("HelpScreen (with a fake keyboard)", () => {
 
   test("shows the keys for the screen it was opened on", async () => {
     const list = mount("list");
-    await list.settle();
+    await list.waitForText("Keyboard help"); // the first frame is drawn
     expect(list.screen()).toContain("On the board");
     expect(list.screen()).toContain("cycle team");
     list.unmount();
 
     const detail = mount("detail");
-    await detail.settle();
+    await detail.waitForText("Keyboard help"); // the first frame is drawn
     expect(detail.screen()).toContain("On an issue's detail screen");
     expect(detail.screen()).toContain("back to the board");
     detail.unmount();
@@ -131,7 +131,7 @@ describe("HelpScreen (with a fake keyboard)", () => {
     ["q", "q"],
   ])("%s closes it", async (_name, key) => {
     const help = mount("list");
-    await help.settle();
+    await help.waitForText("Keyboard help"); // the first frame is drawn
     await help.press(key);
     expect(help.events.closed).toBe(1);
     help.unmount();
@@ -139,7 +139,7 @@ describe("HelpScreen (with a fake keyboard)", () => {
 
   test("other keys don't close it", async () => {
     const help = mount("list");
-    await help.settle();
+    await help.waitForText("Keyboard help"); // the first frame is drawn
     await help.press("x", "o", "s", KEY.enter);
     expect(help.events.closed).toBe(0);
     help.unmount();
@@ -147,7 +147,7 @@ describe("HelpScreen (with a fake keyboard)", () => {
 
   test("scrolls when the terminal is short: j moves down, k back, G to the bottom, g to the top", async () => {
     const help = mount("list", { rows: 14 }); // too short for all 29 lines
-    await help.settle();
+    await help.waitForText("Keyboard help"); // the first frame is drawn
     expect(help.screen()).toContain("▼");
     expect(help.screen()).not.toContain("quit"); // the last row is below the fold
     await help.press("G");
@@ -166,7 +166,7 @@ describe("HelpScreen (with a fake keyboard)", () => {
 
   test("a burst of j in one chunk scrolls several lines (see keys.ts)", async () => {
     const help = mount("list", { rows: 14 });
-    await help.settle();
+    await help.waitForText("Keyboard help"); // the first frame is drawn
     await help.press("jjjj");
     expect(help.screen()).toContain("▲");
     expect(help.events.closed).toBe(0);
@@ -175,7 +175,7 @@ describe("HelpScreen (with a fake keyboard)", () => {
 
   test("a short list needs no scrolling: a tall terminal shows every line and G does nothing", async () => {
     const help = mount("detail", { rows: 40 });
-    await help.settle();
+    await help.waitForText("Keyboard help"); // the first frame is drawn
     const before = help.screen();
     await help.press("G", KEY.j);
     expect(help.screen()).toBe(before);

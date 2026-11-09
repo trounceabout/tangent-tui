@@ -90,8 +90,28 @@ export function mountTerminal(node: ReactElement, { columns = 60, rows = 24, mou
     // The panel's side borders are dropped too: text wrapped inside a panel would
     // otherwise have "┃ ┃" in the middle of it.
     flat: () => (frames.at(-1) ?? "").replace(ANSI, "").replace(/[┃│]/g, " ").replace(/\s+/g, " "),
+    // A fixed pause. Use it only to prove that NOTHING happens. To wait for something
+    // that WILL happen (a load, a save), use waitFor: a fixed pause is too slow on a
+    // quick run and too short on a busy machine, which is what made tests flaky.
     async settle(ms = 120) {
       await wait(ms);
+    },
+    // Wait until `until()` is true, checking every 10 ms, then carry on at once. If it
+    // never becomes true, fail with the screen as it was, so the failure shows why.
+    async waitFor(until: () => boolean, timeoutMs = 3000) {
+      const start = Date.now();
+      while (!until()) {
+        if (Date.now() - start > timeoutMs) {
+          throw new Error(`waitFor timed out after ${timeoutMs} ms. The screen was:\n${(frames.at(-1) ?? "").replace(ANSI, "")}`);
+        }
+        await wait(10);
+      }
+    },
+    // The common case: wait until every one of these texts is on screen (spacing and
+    // line breaks ignored, like flat()).
+    async waitForText(...texts: string[]) {
+      const flat = () => (frames.at(-1) ?? "").replace(ANSI, "").replace(/[┃│]/g, " ").replace(/\s+/g, " ");
+      await this.waitFor(() => texts.every((text) => flat().includes(text)));
     },
     unmount: () => {
       app.unmount();

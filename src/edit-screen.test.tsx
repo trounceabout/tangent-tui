@@ -116,7 +116,7 @@ function mount(
 describe("browsing sends nothing", () => {
   test("the priority picker appears immediately, with the cursor on the current value", async () => {
     const edit = mount("priority");
-    await edit.settle();
+    await edit.waitForText("(current)"); // the picker is showing
     expect(edit.screen()).toContain("Change priority");
     expect(edit.screen()).toContain("High  (current)");
     expect(edit.requests).toHaveLength(0);
@@ -125,7 +125,7 @@ describe("browsing sends nothing", () => {
 
   test("moving around, reaching the confirm screen and backing out sends no write", async () => {
     const edit = mount("priority");
-    await edit.settle();
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.j, KEY.k, KEY.enter); // now on the confirm screen
     expect(edit.screen()).toContain("enter apply");
     await edit.press(KEY.esc); // back to the picker
@@ -139,7 +139,7 @@ describe("browsing sends nothing", () => {
 
   test("status loads the team's options with a READ, and still sends no write", async () => {
     const edit = mount("status");
-    await edit.settle(250);
+    await edit.waitForText("(current)"); // the picker is showing
     expect(edit.screen()).toContain("In Progress");
     expect(edit.requests).toHaveLength(1);
     expect(edit.requests[0]?.query).toContain("TeamSettings");
@@ -159,7 +159,7 @@ describe("browsing sends nothing", () => {
 
   test("q cancels from the confirm screen without sending anything", async () => {
     const edit = mount("priority");
-    await edit.settle();
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter, KEY.q);
     expect(edit.events.cancelled).toBe(1);
     expect(edit.writes()).toHaveLength(0);
@@ -171,9 +171,9 @@ describe("browsing sends nothing", () => {
 describe("a confirmed change sends exactly one write", () => {
   test("priority: High -> Medium", async () => {
     const edit = mount("priority");
-    await edit.settle();
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter, KEY.enter);
-    await edit.settle();
+    await edit.waitFor(() => edit.events.done.length > 0);
     expect(edit.writes()).toHaveLength(1);
     expect(edit.writes()[0]?.variables).toEqual({ id: "PD-7", input: { priority: 3 } });
     expect(edit.events.done).toEqual(["PD-7: High → Medium"]);
@@ -183,9 +183,9 @@ describe("a confirmed change sends exactly one write", () => {
 
   test("status: Todo -> In Progress, by the team's own status id", async () => {
     const edit = mount("status");
-    await edit.settle(250);
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter, KEY.enter);
-    await edit.settle();
+    await edit.waitFor(() => edit.events.done.length > 0);
     expect(edit.writes()).toHaveLength(1);
     expect(edit.writes()[0]?.variables).toEqual({ id: "PD-7", input: { stateId: ID(2) } });
     expect(edit.events.done).toEqual(["PD-7: Todo → In Progress"]);
@@ -194,9 +194,9 @@ describe("a confirmed change sends exactly one write", () => {
 
   test("estimate: M -> L", async () => {
     const edit = mount("estimate");
-    await edit.settle(250);
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter, KEY.enter);
-    await edit.settle();
+    await edit.waitFor(() => edit.events.done.length > 0);
     expect(edit.writes()[0]?.variables).toEqual({ id: "PD-7", input: { estimate: 5 } });
     expect(edit.events.done).toEqual(["PD-7: M → L"]);
     edit.unmount();
@@ -204,7 +204,7 @@ describe("a confirmed change sends exactly one write", () => {
 
   test("a finishing status shows the warning before anything is sent", async () => {
     const edit = mount("status");
-    await edit.settle(250);
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.j, KEY.enter); // -> Done, confirm screen
     expect(edit.screen()).toContain("validation comment");
     expect(edit.writes()).toHaveLength(0);
@@ -217,33 +217,44 @@ describe("double-submit safety", () => {
   // The write is slow here, so extra Enters arrive WHILE it is in flight.
   test("Enter pressed again while saving never sends a second write", async () => {
     const edit = mount("priority", applied, { delayMs: 300 });
-    await edit.settle();
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter, KEY.enter); // apply
     await edit.press(KEY.enter, KEY.enter, KEY.enter); // impatient extra Enters, mid-flight
     expect(edit.screen()).toContain("Saving");
-    await edit.settle(500);
+    await edit.waitFor(() => edit.events.done.length > 0);
+    await edit.settle(150); // a stray second write would have shown up by now
     expect(edit.writes()).toHaveLength(1);
     expect(edit.events.done).toHaveLength(1);
     edit.unmount();
   });
 
-  test("two Enters in ONE chunk can't apply twice", async () => {
+  // Ink hands a burst of keys over as ONE string. expandBurst() (keys.ts) ignores a run
+  // of an ACTION key such as Enter, so a held or pasted Enter can't save. (This test used
+  // to say "<= 1 write", which also passed with 0, so it never checked this.)
+  test("two Enters in ONE chunk are ignored: no write, still on the confirm screen", async () => {
     const edit = mount("priority", applied, { delayMs: 200 });
-    await edit.settle();
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter); // on the confirm screen
+    await edit.waitForText("enter apply");
     await edit.press(`${KEY.enter}${KEY.enter}`); // both in one chunk
-    await edit.settle(500);
-    expect(edit.writes().length).toBeLessThanOrEqual(1);
-    expect(edit.events.done.length).toBeLessThanOrEqual(1);
+    await edit.settle(400); // longer than the write takes: a write would have started and finished
+    expect(edit.writes()).toHaveLength(0);
+    expect(edit.events.done).toHaveLength(0);
+    expect(edit.screen()).toContain("enter apply");
+
+    await edit.press(KEY.enter); // one Enter on its own still saves, exactly once
+    await edit.waitFor(() => edit.events.done.length > 0);
+    expect(edit.writes()).toHaveLength(1);
     edit.unmount();
   });
 
   test("Esc can't interrupt a write that is already in flight", async () => {
     const edit = mount("priority", applied, { delayMs: 300 });
-    await edit.settle();
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter, KEY.enter, KEY.esc, KEY.q);
     expect(edit.events.cancelled).toBe(0);
-    await edit.settle(500);
+    await edit.waitFor(() => edit.events.done.length > 0);
+    await edit.settle(150); // a stray second write would have shown up by now
     expect(edit.writes()).toHaveLength(1);
     expect(edit.events.done).toHaveLength(1);
     edit.unmount();
@@ -254,7 +265,7 @@ describe("double-submit safety", () => {
 describe("nothing is sent when there is nothing to change", () => {
   test("choosing the issue's current value closes without a write", async () => {
     const edit = mount("priority");
-    await edit.settle();
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.enter); // current is High: choose it
     expect(edit.screen()).toContain("Nothing to change");
     expect(edit.screen()).not.toContain("enter apply");
@@ -268,11 +279,11 @@ describe("nothing is sent when there is nothing to change", () => {
   test("dry-run mode does the whole flow and sends no write", async () => {
     process.env.LINEAR_TUI_DRY_RUN = "1";
     const edit = mount("priority");
-    await edit.settle();
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter);
     expect(edit.screen()).toContain("DRY RUN: nothing will be sent to Linear.");
     await edit.press(KEY.enter);
-    await edit.settle();
+    await edit.waitFor(() => edit.events.done.length > 0);
     expect(edit.requests).toHaveLength(0);
     expect(edit.events.done).toEqual(["(dry run) PD-7: High → Medium"]);
     edit.unmount();
@@ -282,7 +293,7 @@ describe("nothing is sent when there is nothing to change", () => {
     const fibonacci = structuredClone(teamSettings);
     fibonacci.data.teams.nodes[0]!.issueEstimationType = "fibonacci";
     const edit = mount("estimate", applied, { settings: fibonacci });
-    await edit.settle(250);
+    await edit.waitForText("isn't supported yet");
     expect(edit.flat()).toContain("isn't supported yet");
     await edit.press(KEY.enter);
     expect(edit.events.cancelled).toBe(1);
@@ -294,7 +305,7 @@ describe("nothing is sent when there is nothing to change", () => {
     const wrongTeam = structuredClone(teamSettings);
     wrongTeam.data.teams.nodes[0]!.key = "UC";
     const edit = mount("status", applied, { settings: wrongTeam });
-    await edit.settle(250);
+    await edit.waitForText("can't be used");
     expect(edit.screen()).toContain("can't be used");
     await edit.press(KEY.enter, KEY.enter);
     expect(edit.writes()).toHaveLength(0);
@@ -306,9 +317,9 @@ describe("nothing is sent when there is nothing to change", () => {
 describe("when the write fails", () => {
   test("shows the error, leaves the issue alone, and does not report success", async () => {
     const edit = mount("priority", () => new Response("forbidden", { status: 403 }));
-    await edit.settle();
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter, KEY.enter);
-    await edit.settle();
+    await edit.waitForText("Linear didn't apply the change");
     expect(edit.flat()).toContain("Linear didn't apply the change");
     expect(edit.flat()).toContain("HTTP 403");
     expect(edit.events.done).toHaveLength(0);
@@ -318,9 +329,9 @@ describe("when the write fails", () => {
 
   test("a permission error from Linear is shown", async () => {
     const edit = mount("priority", () => ({ errors: [{ message: "You do not have permission to update this issue" }] }));
-    await edit.settle();
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter, KEY.enter);
-    await edit.settle();
+    await edit.waitForText("permission");
     expect(edit.screen()).toContain("permission");
     expect(edit.events.done).toHaveLength(0);
     edit.unmount();
@@ -329,15 +340,17 @@ describe("when the write fails", () => {
   test("Enter retries once per press, and a later success is reported once", async () => {
     let attempts = 0;
     const edit = mount("priority", (request) => (++attempts < 3 ? new Response("busy", { status: 503 }) : applied(request)));
-    await edit.settle();
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter, KEY.enter); // attempt 1 fails
-    await edit.settle();
+    await edit.waitFor(() => edit.writes().length === 1);
+    await edit.settle(60); // let the failure render before the next key
     expect(edit.writes()).toHaveLength(1);
     await edit.press(KEY.enter); // retry: attempt 2 fails
-    await edit.settle();
+    await edit.waitFor(() => edit.writes().length === 2);
+    await edit.settle(60);
     expect(edit.writes()).toHaveLength(2);
     await edit.press(KEY.enter); // retry: attempt 3 succeeds
-    await edit.settle();
+    await edit.waitFor(() => edit.events.done.length > 0);
     expect(edit.writes()).toHaveLength(3);
     expect(edit.events.done).toEqual(["PD-7: High → Medium"]);
     edit.unmount();
@@ -345,9 +358,9 @@ describe("when the write fails", () => {
 
   test("Esc after a failure goes back to the picker; nothing more is sent", async () => {
     const edit = mount("priority", () => new Response("nope", { status: 500 }));
-    await edit.settle();
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter, KEY.enter);
-    await edit.settle();
+    await edit.waitForText("Linear didn't apply the change");
     await edit.press(KEY.esc);
     expect(edit.screen()).toContain("enter select");
     expect(edit.writes()).toHaveLength(1);
@@ -358,9 +371,9 @@ describe("when the write fails", () => {
     const edit = mount("priority", () => ({
       data: { issueUpdate: { success: true, issue: { identifier: "PD-7", priority: 4, estimate: 3, state: { id: ID(1), name: "x", type: "started", color: "#fff" } } } },
     }));
-    await edit.settle();
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter, KEY.enter);
-    await edit.settle();
+    await edit.waitForText("different priority");
     expect(edit.screen()).toContain("different priority");
     expect(edit.events.done).toHaveLength(0);
     edit.unmount();
@@ -368,16 +381,16 @@ describe("when the write fails", () => {
 
   test("an error text containing escape sequences is cleaned before it is shown", async () => {
     const edit = mount("priority", () => new Response("x", { status: 500 }));
-    await edit.settle();
+    await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter, KEY.enter);
-    await edit.settle();
+    await edit.waitForText("Linear didn't apply the change");
     expect(edit.screen()).not.toContain(ESC);
     edit.unmount();
   });
 
   test("if the team's options can't be loaded, it says so and nothing is sent", async () => {
     const edit = mount("status", applied, { settings: { errors: [{ message: "Team lookup failed" }] } });
-    await edit.settle(250);
+    await edit.waitForText("Team lookup failed");
     expect(edit.screen()).toContain("Team lookup failed");
     await edit.press(KEY.enter);
     expect(edit.events.cancelled).toBe(1);
