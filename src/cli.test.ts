@@ -1,7 +1,34 @@
 // Tests for src/cli.ts: what `terminal-velocity` does with its command-line arguments.
 
 import { describe, expect, test } from "bun:test";
-import { helpText, parseArgs, versionText } from "./cli.ts";
+import { helpText, parseArgs, userArgs, versionText } from "./cli.ts";
+
+describe("userArgs", () => {
+  test("normally it is everything after the script", () => {
+    expect(userArgs(["bun", "index.tsx", "--help"], "bun")).toEqual(["--help"]);
+    expect(userArgs(["bun", "index.tsx"], "bun")).toEqual([]);
+  });
+
+  test("a compiled binary keeps real arguments", () => {
+    expect(userArgs(["bun", "/$bunfs/root/tv", "--version"], "./tv")).toEqual(["--version"]);
+  });
+
+  // The Bun quirk: with no arguments, a compiled binary's argv gets its own path as an extra.
+  test.each([["./tv"], ["/usr/local/bin/terminal-velocity"], ["terminal-velocity"]])(
+    "a compiled binary's own path (%s) is not an argument",
+    (path) => {
+      expect(userArgs(["bun", "/$bunfs/root/tv", path], path)).toEqual([]);
+    },
+  );
+
+  test("only the exact fake one is dropped: a different single argument stays", () => {
+    expect(userArgs(["bun", "/$bunfs/root/tv", "--bogus"], "./tv")).toEqual(["--bogus"]);
+  });
+
+  test("outside a compiled binary nothing is dropped, even if it equals argv0", () => {
+    expect(userArgs(["bun", "index.tsx", "bun"], "bun")).toEqual(["bun"]);
+  });
+});
 
 describe("parseArgs", () => {
   test("no arguments starts the app", () => {

@@ -3,6 +3,20 @@
 // Pure functions only (no printing, no exiting), so they are easy to test.
 // index.tsx calls these first and decides what to print and when to quit.
 
+// The arguments the person typed, from process.argv, process.argv0 on its own.
+//
+// Normally that's argv.slice(2). But in a compiled binary (Bun 1.2.21), running it with NO
+// arguments puts the binary's own path in as a fake first argument: argv is
+// ["bun", "/$bunfs/root/terminal-velocity", "./terminal-velocity"]. Left alone, plain
+// `terminal-velocity` would fail with "Unknown option: ./terminal-velocity". The fake one is
+// always exactly argv0, and only shows up when there is nothing else, so we drop it then.
+// Compiled binaries are recognised by their script living under /$bunfs/.
+export function userArgs(argv: string[], argv0: string): string[] {
+  const args = argv.slice(2);
+  const compiled = argv[1]?.startsWith("/$bunfs/") ?? false;
+  return compiled && args.length === 1 && args[0] === argv0 ? [] : args;
+}
+
 // What the command line is asking for.
 export type CliAction =
   | { action: "run" } // no arguments: start the app

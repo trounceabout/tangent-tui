@@ -14,9 +14,9 @@
 // exitHooks makes sure the terminal's mouse mode is switched off however we exit.
 
 import pkg from "./package.json";
-import { helpText, parseArgs, versionText } from "./src/cli.ts";
+import { helpText, parseArgs, userArgs, versionText } from "./src/cli.ts";
 
-const cli = parseArgs(process.argv.slice(2));
+const cli = parseArgs(userArgs(process.argv, process.argv0));
 if (cli.action === "help") {
   console.log(helpText());
   process.exit(0);
