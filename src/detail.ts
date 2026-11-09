@@ -188,15 +188,29 @@ function chop(text: string, width: number): string[] {
 // ---------------------------------------------------------------------------
 
 // Inline clean-up: images -> "[image: alt]", links -> just the text, **bold** -> bold.
+//
+// SECURITY: this text comes from other people. Every quantifier below is BOUNDED
+// ({0,200}, not *). With an open-ended `[^\]]*`, an input of many unclosed "[" or
+// "![" makes every start scan to the end of the text, which is quadratic: 100 KB
+// of "![" took ~3.5 s and 1 MB would take minutes. Bounded, each start costs a
+// fixed amount, so the total stays linear.
 const inline = (text: string) =>
   text
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, (_match, alt: string) => (alt ? `[image: ${alt}]` : "[image]"))
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/(\*\*|__)(.*?)\1/g, "$2");
+    .replace(/!\[([^\]]{0,200})\]\([^)]{0,2000}\)/g, (_match, alt: string) => (alt ? `[image: ${alt}]` : "[image]"))
+    .replace(/\[([^\]]{1,200})\]\([^)]{0,2000}\)/g, "$1")
+    .replace(/(\*\*|__)(.{0,500}?)\1/g, "$2");
 
-export function renderMarkdown(markdown: string, width: number): BodyLine[] {
+// Hard limits on how much text we render, so one enormous description or comment
+// can't freeze the screen. Past the limit we say so and point to the browser.
+const MAX_DESCRIPTION_CHARS = 100_000;
+const MAX_COMMENT_CHARS = 20_000;
+const MAX_LINE_CHARS = 2_000;
+
+export function renderMarkdown(markdown: string, width: number, maxChars = MAX_DESCRIPTION_CHARS): BodyLine[] {
   const out: BodyLine[] = [];
   let inCode = false;
+  const truncated = markdown.length > maxChars;
+  if (truncated) markdown = markdown.slice(0, maxChars);
 
   // At most one blank line in a row, and never one at the very start.
   const blank = () => {
@@ -207,7 +221,10 @@ export function renderMarkdown(markdown: string, width: number): BodyLine[] {
   };
 
   for (const raw of markdown.split("\n")) {
-    const line = raw.replace(/\s+$/, "");
+    // trimEnd() is linear-time; a single line is also capped, so one giant line
+    // can't dominate the work.
+    const trimmed = raw.trimEnd();
+    const line = trimmed.length > MAX_LINE_CHARS ? `${trimmed.slice(0, MAX_LINE_CHARS)}…` : trimmed;
 
     // ``` fences toggle "code mode".
     if (/^\s*(```|~~~)/.test(line)) {
@@ -253,6 +270,7 @@ export function renderMarkdown(markdown: string, width: number): BodyLine[] {
 
   // Trim a trailing blank line.
   while (out[out.length - 1]?.text === "") out.pop();
+  if (truncated) out.push({ text: "… text truncated (press o for the full text)", dim: true });
   return out;
 }
 
@@ -298,7 +316,7 @@ export function buildBodyLines(detail: IssueDetail, width: number): BodyLine[] {
     lines.push({ text: `${comment.isReply ? "↳ " : ""}${comment.author}${when ? ` · ${when}` : ""}`, bold: true });
     // Indent the comment body (replies a little further).
     const indent = comment.isReply ? "    " : "  ";
-    for (const line of renderMarkdown(comment.body, width - indent.length)) {
+    for (const line of renderMarkdown(comment.body, width - indent.length, MAX_COMMENT_CHARS)) {
       lines.push({ ...line, text: line.text === "" ? "" : indent + line.text });
     }
   }
