@@ -11,7 +11,7 @@ import { BAR_GRAY, OVERDUE_RED, URGENT_ORANGE } from "./theme.ts";
 // ---------------------------------------------------------------------------
 // Priority icon: always exactly 3 columns wide so titles line up.
 // ---------------------------------------------------------------------------
-function PriorityGlyph({ priority, muted }: { priority: number; muted: boolean }) {
+export function PriorityGlyph({ priority, muted }: { priority: number; muted: boolean }) {
   // Urgent: solid orange block with a white "!" (finished issues go plain).
   if (priority === 1) {
     return muted ? (
@@ -47,7 +47,7 @@ function PriorityGlyph({ priority, muted }: { priority: number; muted: boolean }
 // ---------------------------------------------------------------------------
 type Label = { name: string; color: string };
 
-function fitLabels(labels: Label[], room: number): { shown: Label[]; hidden: number } {
+export function fitLabels(labels: Label[], room: number): { shown: Label[]; hidden: number } {
   // With more than one label, keep 4 columns free for a possible "+N".
   const reserve = labels.length > 1 ? 4 : 0;
   const shown: Label[] = [];

@@ -39,11 +39,24 @@ bun run start
 | `PgUp` `PgDn` | Move half a screen |
 | `g` / `G` (or Home / End) | Jump to top / bottom |
 | `Tab` / `Shift+Tab` | Next / previous status group |
+| `Enter` on an issue | Open its detail screen (description + comments) |
 | `Enter` / `Space` on a status | Fold or unfold it |
 | `←` `→` / `h` `l` | Fold / unfold the current group |
 | `o` | Open the selected issue in the browser |
 | `r` | Refresh now |
 | `q` | Quit |
+
+### Detail screen
+
+Shows the issue's status, priority, estimate, due date, assignee, project and labels, then the description and the comment threads (oldest first, replies indented under their parent).
+
+| Key | Action |
+|---|---|
+| `↑` `↓` / `j` `k` | Scroll a line |
+| `Space` / `PgDn`, `b` / `PgUp` | Scroll a page |
+| `g` / `G` | Top / bottom |
+| `o` | Open the issue in the browser |
+| `Esc` / `q` / `h` / `←` | Back to the list |
 
 ## Development
 

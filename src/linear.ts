@@ -59,6 +59,15 @@ export function cleanText(text: string): string {
   return text.replace(CONTROL_CHARS, " ").replace(BIDI_CONTROLS, "");
 }
 
+// Same idea for long text (descriptions, comments): keep the line breaks, but
+// turn every other control character into a space. Used by detail.ts.
+export function cleanMultiline(text: string): string {
+  return text
+    .replace(/\r\n?/g, "\n") // normalise Windows/old-Mac line endings
+    .replace(/(?!\n)\p{Cc}/gu, " ") // any control character except newline
+    .replace(BIDI_CONTROLS, "");
+}
+
 // Colors go straight into the UI, so only accept a plain "#rrggbb" hex code.
 const FALLBACK_COLOR = "#8a8f98";
 const safeColor = (color: string) => (/^#[0-9a-fA-F]{6}$/.test(color) ? color : FALLBACK_COLOR);
@@ -126,18 +135,40 @@ const QUERY = `
   }
 `;
 
-// The shape of Linear's reply to the query above. Spelling it out lets
-// TypeScript check our paging loop instead of guessing (and giving up).
-type IssuesResponse = {
-  data?: {
-    viewer: {
-      assignedIssues: {
-        pageInfo: { hasNextPage: boolean; endCursor: string | null };
-        nodes: Issue[];
-      };
+// Send one GraphQL request to Linear and return its `data`. Shared by every
+// query we make, so the URL, auth header and error handling live in one place.
+// `T` is the shape we expect `data` to have; spelling it out lets TypeScript
+// check the code that uses it.
+export async function linearQuery<T>(
+  apiKey: string,
+  query: string,
+  variables: Record<string, unknown>,
+): Promise<T> {
+  const res: Response = await fetch("https://api.linear.app/graphql", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      // Personal API keys go in as-is. Do NOT prefix with "Bearer ".
+      Authorization: apiKey,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+
+  if (!res.ok) throw new Error(`Linear API returned HTTP ${res.status}`);
+  const json = (await res.json()) as { data?: T; errors?: unknown };
+  if (json.errors) throw new Error(`Linear API error: ${JSON.stringify(json.errors)}`);
+  if (!json.data) throw new Error("Linear API returned no data");
+  return json.data;
+}
+
+// The shape of Linear's reply to the issues query above.
+type IssuesData = {
+  viewer: {
+    assignedIssues: {
+      pageInfo: { hasNextPage: boolean; endCursor: string | null };
+      nodes: Issue[];
     };
   };
-  errors?: unknown;
 };
 
 // Fetch every page (Linear returns at most 100 per request).
@@ -146,22 +177,8 @@ export async function fetchIssues(apiKey: string): Promise<Issue[]> {
   let after: string | null = null;
 
   while (true) {
-    const res: Response = await fetch("https://api.linear.app/graphql", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        // Personal API keys go in as-is. Do NOT prefix with "Bearer ".
-        Authorization: apiKey,
-      },
-      body: JSON.stringify({ query: QUERY, variables: { after } }),
-    });
-
-    if (!res.ok) throw new Error(`Linear API returned HTTP ${res.status}`);
-    const json: IssuesResponse = (await res.json()) as IssuesResponse;
-    if (json.errors) throw new Error(`Linear API error: ${JSON.stringify(json.errors)}`);
-    if (!json.data) throw new Error("Linear API returned no data");
-
-    const page = json.data.viewer.assignedIssues;
+    const data: IssuesData = await linearQuery<IssuesData>(apiKey, QUERY, { after });
+    const page = data.viewer.assignedIssues;
     issues.push(...page.nodes);
     if (!page.pageInfo.hasNextPage) break;
     after = page.pageInfo.endCursor;

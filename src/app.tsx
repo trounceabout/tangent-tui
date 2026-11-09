@@ -7,9 +7,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
+import type { Key } from "ink";
+import { expandBurst } from "./keys.ts";
 import { COLLAPSED_STATUSES, cleanText, cycleProgress, fetchIssues, getApiKey, groupIssues } from "./linear.ts";
 import type { Issue, StatusGroup } from "./linear.ts";
 import { CycleHeader, GroupHeader, IssueRow, issueHeight } from "./components.tsx";
+import { DetailView } from "./detail-view.tsx";
 import { openInBrowser } from "./open.ts";
 
 const REFRESH_MS = 60_000;
@@ -58,6 +61,12 @@ export function App() {
   // scrolling memory we adjust while rendering, not something that should itself
   // trigger a redraw.
   const topRef = useRef(0);
+  // Where the cursor is RIGHT NOW. Kept in a ref that the move functions update
+  // immediately, because state isn't updated until the next render: several quick
+  // key presses would otherwise all start from the same old position.
+  const cursorRef = useRef(0);
+  // The issue whose detail screen is open, or null when we're on the list.
+  const [detailIssue, setDetailIssue] = useState<Issue | null>(null);
 
   const load = useCallback(async () => {
     setRefreshing(true);
@@ -94,6 +103,7 @@ export function App() {
   const foundIndex = items.findIndex((item) => item.key === selectedKey);
   const selIndex = foundIndex >= 0 ? foundIndex : 0;
   const selectedItem = items[selIndex];
+  cursorRef.current = selIndex; // re-sync with what's really selected on every render
 
   // --- Layout sizes -------------------------------------------------------------
   // Pinned header = title (1) + gap (1) + one line per cycle + gap (1).
@@ -103,17 +113,21 @@ export function App() {
   // --- Keyboard ---------------------------------------------------------------
   const moveTo = (index: number) => {
     const clamped = Math.max(0, Math.min(items.length - 1, index));
+    cursorRef.current = clamped; // update NOW so the next key press builds on this one
     setSelectedKey(items[clamped]?.key ?? null);
   };
+  // Relative moves start from the ref (the latest position), not from `selIndex`.
+  const moveBy = (delta: number) => moveTo(cursorRef.current + delta);
 
   // Tab / Shift+Tab: jump to the next / previous status header, wrapping around.
   const jumpGroup = (direction: 1 | -1) => {
     const headers = items.flatMap((item, index) => (item.kind === "group" ? [index] : []));
     if (headers.length === 0) return;
+    const from = cursorRef.current;
     const target =
       direction === 1
-        ? (headers.find((i) => i > selIndex) ?? headers[0])
-        : (headers.findLast((i) => i < selIndex) ?? headers[headers.length - 1]);
+        ? (headers.find((i) => i > from) ?? headers[0])
+        : (headers.findLast((i) => i < from) ?? headers[headers.length - 1]);
     if (target !== undefined) moveTo(target);
   };
 
@@ -130,13 +144,13 @@ export function App() {
     setSelectedKey(`group:${name}`);
   };
 
-  useInput((input, key) => {
+  const handleKey = (input: string, key: Key) => {
     const page = Math.max(1, Math.floor(viewHeight / 2));
     if (input === "q") exit();
-    else if (key.downArrow || input === "j") moveTo(selIndex + 1);
-    else if (key.upArrow || input === "k") moveTo(selIndex - 1);
-    else if (key.pageDown) moveTo(selIndex + page);
-    else if (key.pageUp) moveTo(selIndex - page);
+    else if (key.downArrow || input === "j") moveBy(1);
+    else if (key.upArrow || input === "k") moveBy(-1);
+    else if (key.pageDown) moveBy(page);
+    else if (key.pageUp) moveBy(-page);
     else if (input === "g" || key.home) moveTo(0);
     else if (input === "G" || key.end) moveTo(items.length - 1);
     else if (key.tab) jumpGroup(key.shift ? -1 : 1);
@@ -146,11 +160,22 @@ export function App() {
     else if (input === "r") void load();
     // o = open the selected issue in the browser (does nothing on a status header).
     else if (input === "o" && selectedItem?.kind === "issue") openInBrowser(selectedItem.issue.url);
+    // Enter on an issue opens its detail screen.
+    else if (key.return && selectedItem?.kind === "issue") setDetailIssue(selectedItem.issue);
     // Enter / space on a status header toggles its fold.
     else if ((key.return || input === " ") && selectedItem?.kind === "group") {
       setFolded(!collapsed.has(selectedItem.group.name));
     }
-  });
+  };
+  // A chunk like "jjj" counts as three presses (see keys.ts). isActive: the list
+  // keys are switched OFF while the detail screen is open, so one keypress never
+  // drives two screens at once.
+  useInput(
+    (input, key) => {
+      for (const char of expandBurst(input)) handleKey(char, key);
+    },
+    { isActive: detailIssue === null },
+  );
 
   // --- Scrolling ------------------------------------------------------------------
   // We scroll in whole items (never half a row). Find the first visible item so
@@ -181,6 +206,10 @@ export function App() {
   const hasBelow = top + visible.length < items.length;
 
   const time = updatedAt?.toLocaleTimeString("en-GB") ?? "";
+
+  // The detail screen replaces the list while it's open. (The list's state, like
+  // the selection and scroll position, is kept, so closing puts you right back.)
+  if (detailIssue) return <DetailView issue={detailIssue} onClose={() => setDetailIssue(null)} />;
 
   return (
     // The whole screen: a column exactly as big as the terminal.
@@ -223,7 +252,7 @@ export function App() {
       {/* Footer: always visible. Errors show in red. */}
       <Box flexDirection="column" flexShrink={0}>
         <Text dimColor wrap="truncate-end">
-          {"↑↓ move  tab group  ⏎ fold"}
+          {"↑↓ move  tab group  ⏎ open/fold"}
         </Text>
         <Text dimColor wrap="truncate-end">
           {"o open  r refresh  q quit"}
