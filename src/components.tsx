@@ -190,7 +190,9 @@ export function CycleHeader({ cycles, doneColor }: { cycles: CycleProgress[]; do
   return (
     // marginBottom: a blank line between this header and the first status group.
     <Box flexDirection="column" flexShrink={0} marginBottom={1}>
-      <Text>
+      {/* wrap="truncate-end" on these lines: the app's scroll math assumes this header is
+          exactly 3 + one line per cycle, so nothing in it may wrap at a narrow width. */}
+      <Text wrap="truncate-end">
         <Text bold>LINEAR BOARD</Text>
         <Text dimColor> my current cycles</Text>
       </Text>
@@ -209,7 +211,7 @@ export function CycleHeader({ cycles, doneColor }: { cycles: CycleProgress[]; do
               <Box width={5} justifyContent="flex-end" flexShrink={0}>
                 <Text>{`${cycle.percent}%`}</Text>
               </Box>
-              <Text dimColor>{`  ${daysLeft(cycle.endsAt)}`}</Text>
+              <Text dimColor wrap="truncate-end">{`  ${daysLeft(cycle.endsAt)}`}</Text>
             </Box>
           );
         })}

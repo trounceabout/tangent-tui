@@ -260,6 +260,24 @@ describe("CycleHeader", () => {
     }
   });
 
+  // The app's scroll math assumes this header is exactly 3 + one line per cycle. At a
+  // narrow width "14 days left" used to wrap onto three lines (9 lines for 2 cycles),
+  // so the list thought it had more room than it did and clipped its bottom rows.
+  test("never wraps: it stays 3 + one line per cycle at any width of 24 columns or more", () => {
+    setSystemTime(NOW);
+    const cycles = [cycle("PD #112", 70), cycle("UC #39", 0)];
+    for (const columns of [24, 26, 28, 30, 32, 36, 40, 47, 60, 80]) {
+      const output = lines(
+        <>
+          <CycleHeader cycles={cycles} doneColor="#4cb782" />
+          <Text>END_MARKER</Text>
+        </>,
+        columns,
+      );
+      expect(output.findIndex((l) => l.includes("END_MARKER"))).toBe(3 + cycles.length);
+    }
+  });
+
   test("100% fills the whole bar", () => {
     setSystemTime(NOW);
     const [, , line] = lines(<CycleHeader cycles={[cycle("PD #1", 100)]} doneColor="#4cb782" />, 47);
