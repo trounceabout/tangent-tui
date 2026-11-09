@@ -1,9 +1,7 @@
 // src/app.tsx
-// The app: holds the state (data, selection, which groups are folded), handles
-// the keyboard, scrolls the list, and lays out the screen.
-//
-// Pass 2, part A: selection + scrolling + folding. (Refresh and open-in-browser
-// keys come in part B.)
+// The app: holds the state (data, filters, selection, which groups are folded),
+// handles the keyboard, scrolls the list, and lays out the screen. The detail
+// screen (detail-view.tsx) replaces it while an issue is open.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
@@ -14,9 +12,21 @@ import type { Issue, StatusGroup } from "./linear.ts";
 import { CycleHeader, GroupHeader, IssueRow, issueHeight } from "./components.tsx";
 import { DetailView } from "./detail-view.tsx";
 import { openInBrowser } from "./open.ts";
+import {
+  MAX_QUERY_CHARS,
+  NO_FILTERS,
+  describeFilters,
+  filterIssues,
+  isFiltering,
+  nextLabel,
+  nextPriority,
+  nextTeam,
+} from "./filter.ts";
+import type { Filters } from "./filter.ts";
 
 const REFRESH_MS = 60_000;
 const FOOTER_HEIGHT = 3; // two lines of key hints + one status line
+const NO_FOLDS = new Set<string>(); // "nothing is folded", used while filtering
 
 // ---------------------------------------------------------------------------
 // The list the cursor moves through: a flat array where a status header and an
@@ -67,6 +77,10 @@ export function App() {
   const cursorRef = useRef(0);
   // The issue whose detail screen is open, or null when we're on the list.
   const [detailIssue, setDetailIssue] = useState<Issue | null>(null);
+  // What's being filtered (the "/" search bar plus the t, p and L keys), and
+  // whether the search bar is open and taking typed input.
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
+  const [searching, setSearching] = useState(false);
 
   const load = useCallback(async () => {
     setRefreshing(true);
@@ -92,11 +106,20 @@ export function App() {
   }, [load]);
 
   // --- Derived data (recomputed only when its inputs change) -----------------
-  const groups = useMemo(() => (issues ? groupIssues(issues) : []), [issues]);
+  const filtering = isFiltering(filters);
+  // Only issues that pass the filters are listed. The cycle progress bars above the
+  // list still count ALL issues: they describe the cycle, not the search.
+  const shownIssues = useMemo(() => (issues ? filterIssues(issues, filters) : []), [issues, filters]);
+  const groups = useMemo(() => groupIssues(shownIssues), [shownIssues]);
   const cycles = useMemo(() => (issues ? cycleProgress(issues) : []), [issues]);
-  const items = useMemo(() => buildItems(groups, collapsed), [groups, collapsed]);
+  // While filtering, ignore the folds so matches inside Done/Canceled aren't hidden.
+  const items = useMemo(
+    () => buildItems(groups, filtering ? NO_FOLDS : collapsed),
+    [groups, filtering, collapsed],
+  );
   // Reuse Linear's own "completed" color for the filled part of the bars.
-  const doneColor = groups.find((g) => g.type === "completed")?.color ?? "#4cb782";
+  const doneColor = issues?.find((i) => i.state.type === "completed")?.state.color ?? "#4cb782";
+  const countText = `${shownIssues.length} of ${issues?.length ?? 0}`;
 
   // Where's the cursor? If the selected item has disappeared (its group got
   // folded, or it left the cycle), fall back to the top.
@@ -156,6 +179,15 @@ export function App() {
     else if (key.tab) jumpGroup(key.shift ? -1 : 1);
     else if (key.leftArrow || input === "h") setFolded(true);
     else if (key.rightArrow || input === "l") setFolded(false);
+    // / opens the search bar.
+    else if (input === "/") setSearching(true);
+    // t / p / L step the team, priority and label filters through their values
+    // (All -> first -> second ... -> All). Functional updates, so quick presses add up.
+    else if (input === "t" && issues) setFilters((f) => ({ ...f, team: nextTeam(issues, f.team) }));
+    else if (input === "p") setFilters((f) => ({ ...f, minPriority: nextPriority(f.minPriority) }));
+    else if (input === "L" && issues) setFilters((f) => ({ ...f, label: nextLabel(issues, f.label) }));
+    // Esc clears every filter, when there are any.
+    else if (key.escape && filtering) setFilters(NO_FILTERS);
     // r = refresh now (the timer does the same thing every REFRESH_MS).
     else if (input === "r") void load();
     // o = open the selected issue in the browser (does nothing on a status header).
@@ -170,11 +202,35 @@ export function App() {
   // A chunk like "jjj" counts as three presses (see keys.ts). isActive: the list
   // keys are switched OFF while the detail screen is open, so one keypress never
   // drives two screens at once.
+  // The list keys are also OFF while the search bar is open (below).
   useInput(
     (input, key) => {
       for (const char of expandBurst(input)) handleKey(char, key);
     },
-    { isActive: detailIssue === null },
+    { isActive: detailIssue === null && !searching },
+  );
+
+  // While the search bar is open, typed characters go INTO the query instead of
+  // acting as commands, so you can search for words containing j, k, q and so on.
+  // Edits use functional updates (`f => ...`) so fast typing never loses letters.
+  useInput(
+    (input, key) => {
+      if (key.escape) {
+        // Esc clears the text and closes the bar.
+        setFilters((f) => ({ ...f, query: "" }));
+        setSearching(false);
+      } else if (key.return) setSearching(false); // Enter keeps the filter
+      else if (key.backspace || key.delete) setFilters((f) => ({ ...f, query: [...f.query].slice(0, -1).join("") }));
+      else if (key.ctrl && input === "u") setFilters((f) => ({ ...f, query: "" }));
+      else if (key.upArrow) moveBy(-1); // move through the results while typing
+      else if (key.downArrow) moveBy(1);
+      else if (input !== "" && !key.ctrl && !key.meta && !key.tab) {
+        // Typed or pasted text: strip control characters and cap the total length.
+        const typed = cleanText(input);
+        setFilters((f) => ({ ...f, query: (f.query + typed).slice(0, MAX_QUERY_CHARS) }));
+      }
+    },
+    { isActive: detailIssue === null && searching },
   );
 
   // --- Scrolling ------------------------------------------------------------------
@@ -226,6 +282,7 @@ export function App() {
           {/* The scrolling list. flexShrink={0} on every block stops flexbox from
               squashing multi-line rows when space is short. */}
           <Box flexDirection="column" flexGrow={1} overflow="hidden">
+            {items.length === 0 ? <Text dimColor>No issues match the filters.</Text> : null}
             {visible.map((item, index) =>
               item.kind === "group" ? (
                 // The blank line above a header is dropped if it's first on screen.
@@ -251,11 +308,36 @@ export function App() {
 
       {/* Footer: always visible. Errors show in red. */}
       <Box flexDirection="column" flexShrink={0}>
+        {searching ? (
+          // The search bar replaces the first hint line while it's open. The query
+          // is truncated from the START so the end (where you're typing) stays visible.
+          <Box>
+            <Text color="cyan">{"/ "}</Text>
+            <Box flexShrink={1}>
+              <Text wrap="truncate-start">{filters.query}</Text>
+            </Box>
+            <Text color="cyan">{"▏"}</Text>
+            <Box flexGrow={1} />
+            <Text dimColor>{countText}</Text>
+          </Box>
+        ) : filtering ? (
+          // Filters are active but the bar is closed: summarise them.
+          <Text wrap="truncate-end">
+            <Text color="cyan">{"filter "}</Text>
+            <Text>{describeFilters(filters)}</Text>
+            <Text dimColor>{`  ${countText}`}</Text>
+          </Text>
+        ) : (
+          <Text dimColor wrap="truncate-end">
+            {"↑↓ move  tab group  ⏎ open/fold  o web  / find"}
+          </Text>
+        )}
         <Text dimColor wrap="truncate-end">
-          {"↑↓ move  tab group  ⏎ open/fold"}
-        </Text>
-        <Text dimColor wrap="truncate-end">
-          {"o open  r refresh  q quit"}
+          {searching
+            ? "enter keep  esc clear  ↑↓ move"
+            : filtering
+              ? "esc clear  / edit  t team  p prio  L label"
+              : "t team  p prio  L label  r refresh  q quit"}
         </Text>
         <Text wrap="truncate-end">
           {error ? <Text color="red">{`${error}  `}</Text> : null}

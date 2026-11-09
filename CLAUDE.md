@@ -16,6 +16,7 @@ A full-screen terminal app (Bun + TypeScript + Ink 8) showing my Linear issues f
 - `src/app.tsx` state, keyboard handling, scrolling, screen layout.
 - `src/detail.ts` DETAIL data: fetches one issue's description + comments, orders comments as threads, wraps markdown-ish text into plain lines (`wrapText`, `renderMarkdown`, `buildBodyLines`). No styling code.
 - `src/detail-view.tsx` the detail screen (pinned header, scrolling body, footer). Loads its own data.
+- `src/filter.ts` FILTER logic, pure functions (`filterIssues`, `parseQuery`, `nextTeam/nextLabel/nextPriority`, `describeFilters`). The `/` search bar edits `filters.query`; `t`, `p`, `L` cycle the other filters. `app.tsx` has a second `useInput` for the search bar, active only while `searching`, where every key is text.
 - `src/keys.ts` `expandBurst()`: see the input gotcha below.
 - `src/theme.ts` the few colors Linear's API doesn't provide.
 - `src/open.ts` opens links with macOS `open` (https only).
@@ -30,6 +31,7 @@ A full-screen terminal app (Bun + TypeScript + Ink 8) showing my Linear issues f
 - **Issue text is untrusted.** Titles, labels and so on are written by other people, so `fetchIssues` runs everything through `cleanText()` (strips control characters and bidi overrides) and `safeColor()` (only `#rrggbb`) before any other code sees it. Don't render a raw API string; add new string fields to `sanitizeIssue`. Ink strips some escape sequences itself but keeps style and hyperlink ones, so don't rely on it.
 - **Ink delivers a burst of keys as ONE string.** If several characters arrive in a single chunk (held key, fast typing), the `useInput` handler is called once with `"jjj"`, not three times, so `input === "j"` silently does nothing. Route handlers through `expandBurst()`, which repeats only navigation keys (never `o`, `r`, `q`, so a paste can't trigger actions). When testing with `rex send-key a b c`, remember the keys go out together.
 - **Wrap text yourself** (with `Bun.stringWidth`, not `.length`, since CJK and emoji take 2 columns) so scrolling knows the exact line count. Comments arrive newest-first and flat; `fetchIssueDetail` reorders them into threads.
+- **Regexes run on untrusted text must be linear.** Use bounded quantifiers (`[^\]]{0,200}`, not `[^\]]*`) and cap input size: 100 KB of unclosed `![` took ~3.5 s with open-ended ones. See the caps and bounds in `detail.ts` and `MAX_QUERY_CHARS` in `filter.ts`.
 - Long text from the API goes through `cleanMultiline()` (keeps newlines); short strings through `cleanText()`.
 - `tsconfig` has `noUncheckedIndexedAccess`: `array[i]` may be undefined, so handle it.
 - Ink 8 is newer than most references. Check `node_modules/ink/readme.md` for exact APIs instead of guessing.

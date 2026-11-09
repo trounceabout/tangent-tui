@@ -43,8 +43,23 @@ bun run start
 | `Enter` / `Space` on a status | Fold or unfold it |
 | `←` `→` / `h` `l` | Fold / unfold the current group |
 | `o` | Open the selected issue in the browser |
+| `/` | Search (see Filtering below) |
+| `t` / `p` / `L` | Cycle the team / priority / label filter |
+| `Esc` | Clear all filters |
 | `r` | Refresh now |
 | `q` | Quit |
+
+### Filtering
+
+Press `/` and type. The list narrows as you type; `Enter` keeps the filter and returns to the list, `Esc` clears it. While the bar is open, every key is text, so you can search for words containing `j`, `q` and so on.
+
+| Search | Matches |
+|---|---|
+| `staging branch` | Issue ID or title containing every word (case-insensitive) |
+| `label:cpq` (or `l:cpq`) | Issues with a label whose name contains `cpq` |
+| `team:pd` (or `t:pd`) | Issues from that team |
+
+The `t`, `p` and `L` keys step through values (all → first → second → … → all). `p` means *at least this urgent*: Urgent, then High and above, then Medium and above. Issues with no priority never match a priority filter. Filters combine, and while any filter is on, folded groups (Done, Canceled) are opened so matches there aren't hidden. The cycle progress bars always count all your issues.
 
 ### Detail screen
 
