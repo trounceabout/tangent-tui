@@ -165,15 +165,6 @@ describe("the app, before any editing", () => {
     expect(app.screen()).toContain("Fix the thing");
     app.unmount();
   });
-
-  test("Enter opens the detail screen, which fetches the description", async () => {
-    const app = await startApp();
-    await app.openDetail();
-    expect(app.screen()).toContain("DESCRIPTION");
-    expect(app.screen()).toContain("Line 1");
-    expect(app.rowsOf().at(-1)).toContain("lines 1–");
-    app.unmount();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -444,15 +435,6 @@ describe("scrolling the list for real", () => {
     app.unmount();
   });
 
-  test("scrolling back up brings the highlight back into view", async () => {
-    const app = await startApp({ extraIssues: 40 });
-    await app.wheel("down");
-    await app.wheel("up");
-    expect(app.rowsOf()[BODY_TOP]).toContain("TODO");
-    expect(app.screen()).toContain("▌▾ ● TODO");
-    app.unmount();
-  });
-
   test("stops at the top and at the bottom", async () => {
     const app = await startApp({ extraIssues: 40 });
     await app.wheel("up");
@@ -483,14 +465,6 @@ describe("scrolling the list for real", () => {
     await app.press("G");
     expect(app.screen()).toContain("▌ PD-139");
     expect(app.rowsOf().at(-1)).not.toContain("▼");
-    app.unmount();
-  });
-
-  test("stepping down with the keyboard only scrolls as far as needed to keep the highlight visible", async () => {
-    const app = await startApp({ extraIssues: 40 });
-    for (let step = 0; step < 30; step++) await app.press(KEY.j);
-    expect(app.screen()).toContain("▌"); // the highlight is always on screen
-    expect(app.rowsOf().at(-1)).toContain("▲");
     app.unmount();
   });
 

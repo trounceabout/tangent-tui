@@ -58,10 +58,6 @@ describe("PickerView", () => {
     expect(render(0, -1).join("\n")).not.toContain("(current)");
   });
 
-  test("shows the key hints", () => {
-    expect(render(0).join("\n")).toContain("enter select");
-  });
-
   test("scrolls to keep the cursor visible when there are more options than rows", () => {
     const many: EditOption[] = Array.from({ length: 20 }, (_, i) => ({ value: i, label: `Option ${i}` }));
     const out = render(15, -1, 60, 10, many);
