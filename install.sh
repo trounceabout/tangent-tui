@@ -1,0 +1,96 @@
+#!/bin/sh
+# Installs Terminal Velocity: downloads the release binary for this Mac, checks its checksum,
+# and puts it in ~/.local/bin as `terminal-velocity`.
+#
+#   curl -fsSL https://raw.githubusercontent.com/trounceabout/terminal-velocity/main/install.sh | sh
+#
+# Optional settings (environment variables):
+#   TERMINAL_VELOCITY_VERSION      a release tag such as v0.1.0 (default: the latest release)
+#   TERMINAL_VELOCITY_INSTALL_DIR  where to put the command (default: ~/.local/bin)
+#   TERMINAL_VELOCITY_BASE_URL     download from here instead of GitHub (for tests and mirrors)
+#
+# What it does NOT do: use sudo, touch your shell config, or change anything outside the
+# install directory and a temporary folder it deletes afterwards.
+#
+# The checksum protects against a damaged or cut-short download. It comes from the same release
+# as the binary, so it is not proof the release itself is genuine; for that, see the
+# build-provenance check in the README.
+
+set -eu
+
+REPO="trounceabout/terminal-velocity"
+
+say() { printf '%s\n' "$*" >&2; }
+die() { say "error: $*"; exit 1; }
+
+# Everything happens inside main, and main is only called on the very last line. If the
+# download is cut off halfway, the shell hits a syntax error while reading the function and
+# runs nothing at all. (Without this, a partial script would run its first half.)
+main() {
+  [ "$(uname -s)" = "Darwin" ] || die "Terminal Velocity only runs on macOS for now (Linux support is tracked in issue #7). This system is: $(uname -s)"
+
+  # Which build? A shell running under Rosetta reports x86_64 even on an Apple Silicon Mac,
+  # so ask macOS whether we are being translated.
+  arch="$(uname -m)"
+  if [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || true)" = "1" ]; then arch="arm64"; fi
+  case "$arch" in
+    arm64) target="darwin-arm64" ;;
+    x86_64) target="darwin-x64" ;;
+    *) die "unsupported processor: $arch" ;;
+  esac
+  name="terminal-velocity-$target"
+
+  # Which release? The version ends up in a URL, so only accept a plain tag.
+  version="${TERMINAL_VELOCITY_VERSION:-latest}"
+  case "$version" in
+    latest) release_path="latest/download" ;;
+    v[0-9]*)
+      case "$version" in
+        *[!0-9A-Za-z.-]*) die "TERMINAL_VELOCITY_VERSION must look like v1.2.3, not: $version" ;;
+      esac
+      release_path="download/$version"
+      ;;
+    *) die "TERMINAL_VELOCITY_VERSION must be 'latest' or look like v1.2.3, not: $version" ;;
+  esac
+
+  # Downloads must be https, unless someone points BASE_URL somewhere on purpose.
+  if [ -n "${TERMINAL_VELOCITY_BASE_URL:-}" ]; then
+    base_url="$TERMINAL_VELOCITY_BASE_URL"
+    protocols="=http,https"
+  else
+    base_url="https://github.com/$REPO/releases/$release_path"
+    protocols="=https"
+  fi
+  install_dir="${TERMINAL_VELOCITY_INSTALL_DIR:-$HOME/.local/bin}"
+
+  # An explicit template, because macOS's bare `mktemp -d` ignores TMPDIR.
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/terminal-velocity.XXXXXX")"
+  trap 'rm -rf "$tmp"' EXIT
+
+  say "Downloading $name ($version)..."
+  for file in "$name" SHA256SUMS; do
+    curl -fsSL --proto "$protocols" -o "$tmp/$file" "$base_url/$file" || die "could not download $base_url/$file"
+  done
+
+  # Check the download against the release's checksum list. A missing entry is a failure too.
+  expected="$(awk -v n="$name" '$2 == n' "$tmp/SHA256SUMS")"
+  [ -n "$expected" ] || die "SHA256SUMS has no entry for $name"
+  printf '%s\n' "$expected" | (cd "$tmp" && shasum -a 256 -c - >/dev/null 2>&1) \
+    || die "checksum does not match for $name. Nothing was installed."
+
+  # Install. Stage the file next to its final home, then rename it into place, so a running
+  # copy is never half-replaced.
+  mkdir -p "$install_dir"
+  staged="$install_dir/.terminal-velocity.$$"
+  cp "$tmp/$name" "$staged"
+  chmod 755 "$staged"
+  mv -f "$staged" "$install_dir/terminal-velocity"
+
+  say "Installed $("$install_dir/terminal-velocity" --version) to $install_dir/terminal-velocity"
+  case ":$PATH:" in
+    *":$install_dir:"*) ;;
+    *) say "$install_dir is not on your PATH. Add this to your shell config:  export PATH=\"$install_dir:\$PATH\"" ;;
+  esac
+}
+
+main "$@"
