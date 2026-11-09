@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
-import { COLLAPSED_STATUSES, cycleProgress, fetchIssues, getApiKey, groupIssues } from "./linear.ts";
+import { COLLAPSED_STATUSES, cleanText, cycleProgress, fetchIssues, getApiKey, groupIssues } from "./linear.ts";
 import type { Issue, StatusGroup } from "./linear.ts";
 import { CycleHeader, GroupHeader, IssueRow, issueHeight } from "./components.tsx";
 import { openInBrowser } from "./open.ts";
@@ -67,7 +67,8 @@ export function App() {
       setError(null);
       setUpdatedAt(new Date());
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      // Error text can echo back server responses, so clean it too.
+      setError(cleanText(err instanceof Error ? err.message : String(err)));
     } finally {
       setRefreshing(false); // runs whether the fetch worked or failed
     }

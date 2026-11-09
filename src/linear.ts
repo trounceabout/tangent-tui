@@ -37,6 +37,50 @@ export type CycleProgress = {
 };
 
 // ---------------------------------------------------------------------------
+// Cleaning text that came over the network
+//
+// Issue titles, label names and so on are written by OTHER people (teammates,
+// integrations, customers). They get printed to the terminal, so a hostile one
+// could carry escape sequences. Ink already filters some, but it deliberately
+// keeps color/style and hyperlink sequences, and we shouldn't depend on a
+// library's filter staying the same. So we clean everything once, right here
+// where the data enters the program.
+// ---------------------------------------------------------------------------
+
+// \p{Cc} = every control character: ESC, BEL, tabs, newlines, and the C1 range.
+const CONTROL_CHARS = /\p{Cc}/gu;
+// Bidirectional overrides can make text DISPLAY in a different order than it
+// is stored, e.g. to fake another issue ID.
+const BIDI_CONTROLS = /[‎‏‪-‮⁦-⁩]/g;
+
+// Make a string safe to print: control characters become spaces (so a newline
+// in a title doesn't glue two words together), bidi overrides are dropped.
+export function cleanText(text: string): string {
+  return text.replace(CONTROL_CHARS, " ").replace(BIDI_CONTROLS, "");
+}
+
+// Colors go straight into the UI, so only accept a plain "#rrggbb" hex code.
+const FALLBACK_COLOR = "#8a8f98";
+const safeColor = (color: string) => (/^#[0-9a-fA-F]{6}$/.test(color) ? color : FALLBACK_COLOR);
+
+// Return a copy of an issue with every network-supplied string cleaned.
+function sanitizeIssue(issue: Issue): Issue {
+  return {
+    ...issue,
+    identifier: cleanText(issue.identifier),
+    title: cleanText(issue.title),
+    url: cleanText(issue.url),
+    state: { ...issue.state, name: cleanText(issue.state.name), type: cleanText(issue.state.type), color: safeColor(issue.state.color) },
+    cycle: { ...issue.cycle, endsAt: cleanText(issue.cycle.endsAt), team: { key: cleanText(issue.cycle.team.key) } },
+    dueDate: issue.dueDate === null ? null : cleanText(issue.dueDate),
+    labels: {
+      nodes: issue.labels.nodes.map((label) => ({ name: cleanText(label.name), color: safeColor(label.color) })),
+    },
+    team: { key: cleanText(issue.team.key), issueEstimationType: cleanText(issue.team.issueEstimationType) },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // API key + fetching
 // ---------------------------------------------------------------------------
 
@@ -122,7 +166,8 @@ export async function fetchIssues(apiKey: string): Promise<Issue[]> {
     if (!page.pageInfo.hasNextPage) break;
     after = page.pageInfo.endCursor;
   }
-  return issues;
+  // Clean everything at the boundary, before any other code sees it.
+  return issues.map(sanitizeIssue);
 }
 
 // ---------------------------------------------------------------------------

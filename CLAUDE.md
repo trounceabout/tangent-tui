@@ -24,6 +24,7 @@ A full-screen terminal app (Bun + TypeScript + Ink 8) showing my Linear issues f
 - **Flexbox: set `flexShrink={0}` on anything with a fixed size.** Ink shrinks children by default, which wrapped issue IDs and squashed two-line rows (their detail line spilled onto the next row). Fixed-width columns and stacked row blocks all need it.
 - **Scrolling works in whole items**, not lines. `issueHeight()` in `components.tsx` must match when `IssueRow` draws its detail line.
 - **Selection is tracked by key** (`issue:PD-3066`, `group:Todo`), not by index, so it survives refreshes.
+- **Issue text is untrusted.** Titles, labels and so on are written by other people, so `fetchIssues` runs everything through `cleanText()` (strips control characters and bidi overrides) and `safeColor()` (only `#rrggbb`) before any other code sees it. Don't render a raw API string; add new string fields to `sanitizeIssue`. Ink strips some escape sequences itself but keeps style and hyperlink ones, so don't rely on it.
 - `tsconfig` has `noUncheckedIndexedAccess`: `array[i]` may be undefined, so handle it.
 - Ink 8 is newer than most references. Check `node_modules/ink/readme.md` for exact APIs instead of guessing.
 - The API key lives only in the macOS Keychain (service `linear-api-key`). Never write it to a file, env var, log, or chat.
