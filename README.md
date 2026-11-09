@@ -94,6 +94,21 @@ Shows the issue's status, priority, estimate, due date, assignee, project and la
 | `o` | Open the issue in the browser |
 | `Esc` / `q` / `h` / `←` | Back to the list |
 
+## Mouse
+
+The mouse works alongside the keys.
+
+| Where | Action |
+|---|---|
+| List: click an issue | Open its detail screen |
+| List: click a status header | Fold / unfold the group |
+| List, detail screen, help: wheel | Scroll (the list scrolls without moving the highlight) |
+| Edit panel: click outside it | Cancel |
+| Edit panel: click an option | Go to the confirm screen (a click never saves; only `Enter` on the confirm screen does) |
+| `m` | Mouse on / off |
+
+**Text selection:** while the mouse is on, the terminal sends clicks to the app instead of selecting text. Press `m` to switch it off and select or copy as usual (the status line shows `mouse off`), or start with `LINEAR_TUI_MOUSE=0`. It is always switched off when the app quits.
+
 ## Development
 
 ```sh

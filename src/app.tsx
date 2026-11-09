@@ -14,6 +14,8 @@ import { DetailView } from "./detail-view.tsx";
 import { EditScreen } from "./edit-screen.tsx";
 import { HelpScreen } from "./help-screen.tsx";
 import type { EditKind } from "./edit.ts";
+import { WHEEL_LINES, useMouse, useMouseApi } from "./mouse-context.ts";
+import { itemAtLine, layoutItems, lineAtScreenRow } from "./list-layout.ts";
 import { isDryRun } from "./mutations.ts";
 import { openInBrowser } from "./open.ts";
 import {
@@ -71,10 +73,10 @@ export function App() {
   // The selection is remembered by KEY (e.g. "issue:PD-3066"), not by position,
   // so it stays on the same issue when the list refreshes or changes.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  // Index of the first item shown on screen. A ref (not state) because it is a
-  // scrolling memory we adjust while rendering, not something that should itself
-  // trigger a redraw.
-  const topRef = useRef(0);
+  // How many LINES of the list are scrolled off the top. This is independent of which
+  // issue is highlighted: the mouse wheel changes it without moving the highlight, and
+  // moving the highlight (keyboard, click) scrolls just enough to keep it in view.
+  const [scrollTop, setScrollTop] = useState(0);
   // Where the cursor is RIGHT NOW. Kept in a ref that the move functions update
   // immediately, because state isn't updated until the next render: several quick
   // key presses would otherwise all start from the same old position.
@@ -93,6 +95,10 @@ export function App() {
   const [flash, setFlash] = useState<string | null>(null);
   // Whether the ? help panel is open over the current screen.
   const [helpOpen, setHelpOpen] = useState(false);
+  // Mouse reporting: on or off in the terminal. (While it's on the terminal can't do its
+  // normal text selection, so the `m` key switches it off.)
+  const mouseApi = useMouseApi();
+  const [mouseOn, setMouseOn] = useState(mouseApi.enabled());
 
   const load = useCallback(async () => {
     setRefreshing(true);
@@ -176,15 +182,22 @@ export function App() {
 
   // Fold or unfold the group of whatever is selected. When folding, the cursor
   // moves to that group's header so it doesn't vanish with the rows it was on.
-  const setFolded = (folded: boolean) => {
-    if (!selectedItem) return;
-    const name = selectedItem.group.name;
+  const setGroupFolded = (name: string, folded: boolean) => {
     if (folded === collapsed.has(name)) return; // already in that state
     const next = new Set(collapsed);
     if (folded) next.add(name);
     else next.delete(name);
     setCollapsed(next);
     setSelectedKey(`group:${name}`);
+  };
+  const setFolded = (folded: boolean) => {
+    if (selectedItem) setGroupFolded(selectedItem.group.name, folded);
+  };
+
+  // m switches mouse reporting on or off.
+  const toggleMouse = () => {
+    mouseApi.setEnabled(!mouseApi.enabled());
+    setMouseOn(mouseApi.enabled());
   };
 
   const handleKey = (input: string, key: Key) => {
@@ -199,6 +212,8 @@ export function App() {
     else if (key.tab) jumpGroup(key.shift ? -1 : 1);
     else if (key.leftArrow || input === "h") setFolded(true);
     else if (key.rightArrow || input === "l") setFolded(false);
+    // m switches the mouse on or off (off lets the terminal select text again).
+    else if (input === "m") toggleMouse();
     // / opens the search bar.
     else if (input === "/") setSearching(true);
     // ? opens the help panel (every key, on this screen).
@@ -261,32 +276,72 @@ export function App() {
   );
 
   // --- Scrolling ------------------------------------------------------------------
-  // We scroll in whole items (never half a row). Find the first visible item so
-  // that the selected one fits on screen.
-  const heightFrom = (from: number, to: number) => {
-    let total = 0;
-    for (let i = from; i <= to; i++) total += items[i]?.height ?? 0;
-    return total;
+  // The list is ONE tall column of all the items, seen through a window `viewHeight`
+  // lines tall. `offsets[i]` is the line where item i starts; `totalLines` is the height
+  // of the whole column.
+  const { offsets, totalLines } = useMemo(() => layoutItems(items.map((item) => item.height)), [items]);
+  const maxScrollTop = Math.max(0, totalLines - viewHeight);
+  // Clamp: the list can get shorter (a filter, a fold) or the pane taller.
+  const shownTop = Math.min(scrollTop, maxScrollTop);
+
+  // The scroll position that shows item `index` completely, moving as little as possible
+  // from `from`.
+  const scrolledToShow = (index: number, from: number): number => {
+    const start = offsets[index] ?? 0;
+    const end = start + (items[index]?.height ?? 1);
+    if (start < from) return start; // above the window: scroll up to it
+    if (end > from + viewHeight) return Math.max(0, end - viewHeight); // below: scroll down just enough
+    return from;
   };
 
-  let top = Math.min(topRef.current, Math.max(0, items.length - 1));
-  if (selIndex < top) top = selIndex; // moved above the window: scroll up
-  while (top < selIndex && heightFrom(top, selIndex) > viewHeight) top++; // below: scroll down
-  // Blank space at the bottom (after folding or a resize)? Scroll back up to fill it.
-  while (top > 0 && heightFrom(top - 1, items.length - 1) <= viewHeight) top--;
-  topRef.current = top;
+  // When the HIGHLIGHT moves (a key, a click, a fold), keep it in view. This is keyed on
+  // the selection alone, on purpose: the mouse wheel can scroll the highlight out of view
+  // and nothing drags it back until you move the highlight again.
+  useEffect(() => {
+    setScrollTop((t) => scrolledToShow(selIndex, Math.min(t, maxScrollTop)));
+  }, [selectedKey]);
+  // A new search or filter starts again at the top.
+  useEffect(() => {
+    setScrollTop(0);
+  }, [filters]);
 
-  // Take items from `top` until the view is full.
-  const visible: Item[] = [];
-  let used = 0;
-  for (let i = top; i < items.length; i++) {
-    const item = items[i];
-    if (!item || (used + item.height > viewHeight && visible.length > 0)) break;
-    visible.push(item);
-    used += item.height;
-  }
-  const hasAbove = top > 0;
-  const hasBelow = top + visible.length < items.length;
+  // Scroll by a number of lines (negative = up) WITHOUT touching the highlight.
+  const scrollBy = (lines: number) =>
+    setScrollTop((t) => Math.max(0, Math.min(maxScrollTop, Math.min(t, maxScrollTop) + lines)));
+
+  // The mouse wheel scrolls the list, three lines per notch. (When the detail screen or a
+  // panel is open, it has its own handler for the wheel.)
+  // A left click on an issue selects it and opens its detail; on a status header it folds
+  // or unfolds the group. Clicks above or below the list (the header, the footer), and on
+  // the blank line above a header, do nothing. A click leaves the search bar open or closed
+  // as is, except that opening an issue closes it (the filter stays).
+  const clickList = (screenY: number) => {
+    const line = lineAtScreenRow(screenY, headerHeight, viewHeight, shownTop);
+    if (line === null) return;
+    const hit = itemAtLine(offsets, items.map((item) => item.height), line);
+    const item = hit ? items[hit.index] : undefined;
+    if (!hit || !item) return;
+    // A header after the first has a blank line above it. That blank line is part of the
+    // header's item, but it isn't the header.
+    if (item.kind === "group" && item.height > 1 && hit.lineInItem < item.height - 1) return;
+    cursorRef.current = hit.index;
+    setSelectedKey(item.key);
+    if (item.kind === "issue") {
+      setSearching(false);
+      setDetailIssue(item.issue);
+    } else {
+      setGroupFolded(item.group.name, !collapsed.has(item.group.name));
+    }
+  };
+
+  // Wheel: scroll the list. Click: see clickList.
+  useMouse((event) => {
+    if (event.kind === "wheel") scrollBy(event.direction === "up" ? -WHEEL_LINES : WHEEL_LINES);
+    else if (event.kind === "press" && event.button === "left") clickList(event.y);
+  }, detailIssue === null && editing === null && !helpOpen);
+
+  const hasAbove = shownTop > 0;
+  const hasBelow = shownTop < maxScrollTop;
 
   const time = updatedAt?.toLocaleTimeString("en-GB") ?? "";
 
@@ -338,29 +393,34 @@ export function App() {
           {/* Pinned header: never scrolls. */}
           <CycleHeader cycles={cycles} doneColor={doneColor} />
 
-          {/* The scrolling list. flexShrink={0} on every block stops flexbox from
-              squashing multi-line rows when space is short. */}
-          <Box flexDirection="column" flexGrow={1} overflow="hidden">
-            {items.length === 0 ? <Text dimColor>No issues match the filters.</Text> : null}
-            {visible.map((item, index) =>
-              item.kind === "group" ? (
-                // The blank line above a header is dropped if it's first on screen.
-                <Box key={item.key} flexShrink={0} marginTop={index === 0 ? 0 : item.height - 1}>
-                  <GroupHeader
-                    group={item.group}
-                    collapsed={collapsed.has(item.group.name)}
+          {/* The scrolling list: ONE tall column of every item, seen through a window. The
+              window clips (overflow="hidden") and contentOffsetY slides the column up by
+              the number of scrolled lines. flexShrink={0} keeps the column at its natural
+              height: without it flexbox would squash it to fit and there'd be nothing to
+              scroll. */}
+          <Box flexDirection="column" flexGrow={1} overflow="hidden" contentOffsetY={shownTop}>
+            <Box flexDirection="column" flexShrink={0}>
+              {items.length === 0 ? <Text dimColor>No issues match the filters.</Text> : null}
+              {items.map((item, index) =>
+                item.kind === "group" ? (
+                  // The blank line above every header except the first.
+                  <Box key={item.key} flexShrink={0} marginTop={index === 0 ? 0 : item.height - 1}>
+                    <GroupHeader
+                      group={item.group}
+                      collapsed={collapsed.has(item.group.name)}
+                      selected={item.key === selectedItem?.key}
+                    />
+                  </Box>
+                ) : (
+                  <IssueRow
+                    key={item.key}
+                    issue={item.issue}
                     selected={item.key === selectedItem?.key}
+                    width={columns}
                   />
-                </Box>
-              ) : (
-                <IssueRow
-                  key={item.key}
-                  issue={item.issue}
-                  selected={item.key === selectedItem?.key}
-                  width={columns}
-                />
-              ),
-            )}
+                ),
+              )}
+            </Box>
           </Box>
         </>
       )}
@@ -400,6 +460,7 @@ export function App() {
         ) : (
           <Text wrap="truncate-end">
             {isDryRun() ? <Text color="cyan">DRY RUN  </Text> : null}
+            {mouseApi.supported && !mouseOn ? <Text dimColor>mouse off  </Text> : null}
             {flash ? <Text color="green">{`✓ ${flash}  `}</Text> : null}
             {error ? <Text color="red">{`${error}  `}</Text> : null}
             <Text dimColor>

@@ -55,7 +55,7 @@ describe("HelpView", () => {
     const height = helpHeight(all.length, 100);
     const out = view(0, 40, height);
     expect(out[height - 1]).toBe("esc close");
-    expect(out.join("\n")).not.toContain("scroll");
+    expect(out.join("\n")).not.toContain("↑↓ scroll"); // the hint itself (the help text has its own "scroll" rows)
   });
 
   test("when it doesn't fit, it scrolls: arrows show which way there's more", () => {

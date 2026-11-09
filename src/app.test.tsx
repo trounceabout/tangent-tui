@@ -9,7 +9,7 @@ import { App } from "./app.tsx";
 import { helpHeight } from "./help-screen.tsx";
 import { helpLines } from "./help.ts";
 import { panelGeometry } from "./panel.tsx";
-import { mockFetch } from "./testing.ts";
+import { ESC, mockFetch } from "./testing.ts";
 import type { SeenRequest } from "./testing.ts";
 import { KEY, mountTerminal } from "./testing-terminal.ts";
 
@@ -28,8 +28,21 @@ const DESCRIPTION = Array.from({ length: 60 }, (_, i) => `Line ${i + 1} ${"=".re
 
 // A tiny fake of Linear: one issue (PD-7) whose status, priority and estimate can be
 // changed, plus the detail and team-settings queries.
-function fakeLinear() {
+function fakeLinear(extraIssues = 0) {
   const server = { stateId: ID(1), priority: 2, estimate: 3, requests: [] as SeenRequest[], writes: [] as unknown[] };
+  // More issues, to give the list something to scroll. Each is one line tall, in the same group.
+  const extraIssue = (i: number) => ({
+    identifier: `PD-${100 + i}`,
+    title: `Extra issue ${i}`,
+    url: `https://linear.app/x/issue/PD-${100 + i}`,
+    priority: 3,
+    state: { name: "Todo", type: "unstarted", position: 1, color: "#e2e2e2" },
+    dueDate: null,
+    estimate: null,
+    labels: { nodes: [] },
+    team: { key: "PD", issueEstimationType: "tShirt" },
+    cycle: { number: 1, endsAt: "2099-12-30T05:00:00.000Z", team: { key: "PD" } },
+  });
   const respond = (request: SeenRequest): unknown => {
     server.requests.push(request);
     const state = STATES[server.stateId] ?? { name: "?", type: "started" };
@@ -100,6 +113,7 @@ function fakeLinear() {
                 team: { key: "PD", issueEstimationType: "tShirt" },
                 cycle: { number: 1, endsAt: "2099-12-30T05:00:00.000Z", team: { key: "PD" } },
               },
+              ...Array.from({ length: extraIssues }, (_, i) => extraIssue(i)),
             ],
           },
         },
@@ -127,10 +141,11 @@ afterEach(() => {
 });
 
 // Start the app against the fake Linear and wait for the first load.
-async function startApp() {
-  const linear = fakeLinear();
+async function startApp({ extraIssues = 0 } = {}) {
+  const linear = fakeLinear(extraIssues);
   restoreFetch = mockFetch(linear.respond);
-  const terminal = mountTerminal(<App />, { columns: COLUMNS, rows: ROWS });
+  // mouse: true gives the app the real mouse pipeline (the filter and the context).
+  const terminal = mountTerminal(<App />, { columns: COLUMNS, rows: ROWS, mouse: true });
   await terminal.settle(500);
   const rowsOf = () => terminal.screen().split("\n");
   const issueQueries = () => linear.server.requests.filter((r) => r.query.includes("MyCycleIssues")).length;
@@ -397,6 +412,318 @@ describe("the ? help panel", () => {
     await app.press(KEY.esc);
     await app.press("P");
     expect(app.screen()).toContain("Change priority");
+    app.unmount();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The list used to show "whole items from a remembered first item" and always forced the
+// highlighted one into view, so scrolling and selection were the same thing (the wheel
+// even arrived as arrow keys). Now it's a real scrolling window, line by line.
+describe("scrolling the list for real", () => {
+  const BODY_TOP = 4; // rows above the list: the title, a gap, one cycle line, a gap
+  const ENABLE = `${ESC}[?1000h${ESC}[?1006h`;
+
+  test("the app asks the terminal for mouse reports at start", async () => {
+    const app = await startApp();
+    expect(app.mouseWrites).toEqual([ENABLE]);
+    app.unmount();
+  });
+
+  test("one notch of the wheel scrolls three lines, and the highlight is left where it was", async () => {
+    const app = await startApp({ extraIssues: 40 });
+    expect(app.rowsOf()[BODY_TOP]).toContain("TODO"); // the group header is the first line of the list
+    expect(app.screen()).toContain("▌▾ ● TODO"); // and it is highlighted
+    expect(app.rowsOf().at(-1)).not.toContain("▲");
+
+    await app.wheel("down", 5, 10);
+    // Lines 0-2 (the header, PD-7, PD-100) scrolled off; line 3 is now at the top.
+    expect(app.rowsOf()[BODY_TOP]).toContain("PD-101");
+    expect(app.screen()).not.toContain("▌"); // the highlight is out of view, NOT moved along with the scroll
+    expect(app.rowsOf().at(-1)).toContain("▲");
+    app.unmount();
+  });
+
+  test("scrolling back up brings the highlight back into view", async () => {
+    const app = await startApp({ extraIssues: 40 });
+    await app.wheel("down");
+    await app.wheel("up");
+    expect(app.rowsOf()[BODY_TOP]).toContain("TODO");
+    expect(app.screen()).toContain("▌▾ ● TODO");
+    app.unmount();
+  });
+
+  test("stops at the top and at the bottom", async () => {
+    const app = await startApp({ extraIssues: 40 });
+    await app.wheel("up");
+    await app.wheel("up");
+    expect(app.rowsOf()[BODY_TOP]).toContain("TODO"); // can't go above the top
+    for (let notch = 0; notch < 25; notch++) await app.wheel("down");
+    expect(app.screen()).toContain("Extra issue 39"); // the last issue is on screen
+    expect(app.rowsOf().at(-1)).not.toContain("▼"); // nothing more below
+    expect(app.rowsOf().at(-1)).toContain("▲");
+    const bottom = app.screen();
+    await app.wheel("down"); // another notch changes nothing
+    expect(app.screen()).toBe(bottom);
+    app.unmount();
+  });
+
+  test("moving the highlight with the keyboard afterwards scrolls it back into view", async () => {
+    const app = await startApp({ extraIssues: 40 });
+    await app.wheel("down");
+    await app.wheel("down"); // 6 lines down: the highlighted header is far above the window
+    expect(app.screen()).not.toContain("▌");
+    await app.press(KEY.j); // the highlight moves to PD-7, which must now be shown
+    expect(app.rowsOf()[BODY_TOP]).toContain("▌ PD-7");
+    app.unmount();
+  });
+
+  test("G jumps to the last issue and scrolls to show it", async () => {
+    const app = await startApp({ extraIssues: 40 });
+    await app.press("G");
+    expect(app.screen()).toContain("▌ PD-139");
+    expect(app.rowsOf().at(-1)).not.toContain("▼");
+    app.unmount();
+  });
+
+  test("stepping down with the keyboard only scrolls as far as needed to keep the highlight visible", async () => {
+    const app = await startApp({ extraIssues: 40 });
+    for (let step = 0; step < 30; step++) await app.press(KEY.j);
+    expect(app.screen()).toContain("▌"); // the highlight is always on screen
+    expect(app.rowsOf().at(-1)).toContain("▲");
+    app.unmount();
+  });
+
+  test("starting a search puts the list back at the top", async () => {
+    const app = await startApp({ extraIssues: 40 });
+    await app.wheel("down");
+    await app.wheel("down");
+    expect(app.rowsOf().at(-1)).toContain("▲");
+    await app.press("/");
+    await app.press("E");
+    expect(app.rowsOf()[BODY_TOP]).toContain("TODO"); // back at the top
+    app.unmount();
+  });
+
+  test("a wheel report is never typed into the search bar", async () => {
+    const app = await startApp({ extraIssues: 40 });
+    await app.press("/");
+    await app.wheel("down");
+    await app.wheel("up");
+    const bar = app.rowsOf().at(-2) ?? "";
+    expect(bar).toContain("/ ");
+    expect(bar).not.toContain("<");
+    expect(bar).not.toContain("[");
+    app.unmount();
+  });
+
+  test("the wheel doesn't move the highlight or open anything", async () => {
+    const app = await startApp({ extraIssues: 40 });
+    await app.press(KEY.j); // highlight PD-7
+    await app.wheel("down");
+    await app.wheel("down");
+    await app.wheel("up");
+    await app.wheel("up");
+    expect(app.screen()).toContain("▌ PD-7"); // back where it was, never moved
+    expect(app.screen()).not.toContain("DESCRIPTION");
+    app.unmount();
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe("clicking in the list", () => {
+  const BODY_TOP = 4; // the list starts on screen row 4 (rows are counted from 0)
+
+  test("clicking an issue opens its detail screen", async () => {
+    const app = await startApp();
+    await app.click(10, BODY_TOP + 1); // row 5 is PD-7, the first issue under the TODO header
+    await app.settle(500);
+    expect(app.screen()).toContain("DESCRIPTION");
+    expect(app.screen()).toContain("Line 1");
+    app.unmount();
+  });
+
+  test("clicking an issue lower in the list opens THAT issue", async () => {
+    const app = await startApp({ extraIssues: 3 });
+    await app.click(10, BODY_TOP + 2); // PD-100, the next row down
+    await app.settle(500);
+    expect(app.screen()).toContain("PD-100");
+    expect(app.screen()).toContain("Extra issue 0");
+    app.unmount();
+  });
+
+  test("clicking after scrolling hits the issue that is on screen, not the one at the top of the list", async () => {
+    const app = await startApp({ extraIssues: 40 });
+    await app.wheel("down"); // 3 lines: PD-101 is now the first row
+    expect(app.rowsOf()[BODY_TOP]).toContain("PD-101");
+    await app.click(10, BODY_TOP);
+    await app.settle(500);
+    expect(app.screen()).toContain("Extra issue 1"); // PD-101
+    app.unmount();
+  });
+
+  test("clicking a group header folds the group, and clicking again unfolds it", async () => {
+    const app = await startApp();
+    await app.click(10, BODY_TOP);
+    expect(app.screen()).not.toContain("PD-7"); // folded away
+    expect(app.screen()).toContain("▸"); // the fold arrow now points right
+    await app.click(10, BODY_TOP);
+    expect(app.screen()).toContain("PD-7");
+    app.unmount();
+  });
+
+  test("clicks on the header or the footer do nothing", async () => {
+    const app = await startApp();
+    const before = app.screen();
+    await app.click(10, 0); // the title
+    await app.click(10, ROWS - 1); // the footer
+    expect(app.screen()).toBe(before);
+    app.unmount();
+  });
+
+  test("clicks below the last issue do nothing", async () => {
+    const app = await startApp();
+    const before = app.screen();
+    await app.click(10, BODY_TOP + 8); // empty space under the list
+    expect(app.screen()).toBe(before);
+    app.unmount();
+  });
+
+  test("right and middle buttons don't open anything", async () => {
+    const app = await startApp();
+    await app.click(10, 5, "right");
+    await app.click(10, 5, "middle");
+    await app.settle(200);
+    expect(app.screen()).not.toContain("DESCRIPTION");
+    app.unmount();
+  });
+});
+
+describe("the m key", () => {
+  test("switches mouse reporting off and on again, and says so in the status line", async () => {
+    const app = await startApp();
+    expect(app.screen()).not.toContain("mouse off");
+    await app.press("m");
+    expect(app.screen()).toContain("mouse off");
+    expect(app.mouseWrites.at(-1)).toBe(`${ESC}[?1006l${ESC}[?1000l`);
+    await app.press("m");
+    expect(app.screen()).not.toContain("mouse off");
+    expect(app.mouseWrites.at(-1)).toBe(`${ESC}[?1000h${ESC}[?1006h`);
+    app.unmount();
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe("the wheel and clicks on the detail screen and the help", () => {
+  test("the wheel scrolls the detail screen", async () => {
+    const app = await startApp();
+    await app.openDetail();
+    expect(app.rowsOf().at(-1)).toContain("lines 1–");
+    await app.wheel("down", 10, 10);
+    expect(app.screen()).not.toContain("Line 1 ="); // the first body line scrolled away
+    expect(app.rowsOf().at(-1)).toContain("lines 4–"); // three lines per notch
+    await app.wheel("up", 10, 10);
+    expect(app.rowsOf().at(-1)).toContain("lines 1–");
+    app.unmount();
+  });
+
+  test("the wheel scrolls the help, and the list underneath doesn't move", async () => {
+    const app = await startApp({ extraIssues: 40 });
+    await app.press("?");
+    expect(app.screen()).toContain("Keyboard help");
+    const before = app.screen();
+    await app.wheel("down", 30, 15);
+    expect(app.screen()).toContain("Keyboard help");
+    expect(app.screen()).not.toBe(before); // the help scrolled
+    expect(app.screen()).toContain("▲"); // there is more above now
+    await app.press(KEY.esc);
+    expect(app.rowsOf()[4]).toContain("TODO"); // the list is still at the top
+    app.unmount();
+  });
+
+  test("a click outside the help closes it; a click inside does not", async () => {
+    const app = await startApp();
+    await app.press("?");
+    await app.click(COLUMNS / 2, ROWS / 2); // the middle of the panel
+    expect(app.screen()).toContain("Keyboard help");
+    await app.click(0, 0); // far outside it
+    expect(app.screen()).not.toContain("Keyboard help");
+    expect(app.screen()).not.toContain("DESCRIPTION"); // and the click didn't open an issue underneath
+    app.unmount();
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe("the mouse in the edit panel (a click never saves)", () => {
+  // Open the priority picker for PD-7 (priority High) and find the screen row of an option.
+  const openPicker = async (app: Awaited<ReturnType<typeof startApp>>) => {
+    await app.press(KEY.j, "P"); // select PD-7, open the priority picker
+    await app.settle(300);
+    expect(app.screen()).toContain("Low");
+  };
+  const rowOf = (app: Awaited<ReturnType<typeof startApp>>, text: string) => app.rowsOf().findIndex((row) => row.includes(text));
+
+  test("clicking an option goes to the confirm screen and sends NOTHING; only Enter saves", async () => {
+    const app = await startApp();
+    await openPicker(app);
+    await app.click(COLUMNS / 2, rowOf(app, "Low"));
+    await app.settle(200);
+    expect(app.flat()).toContain("Priority High → Low"); // the confirm screen
+    expect(app.flat()).toContain("enter apply");
+    expect(app.server.writes).toEqual([]); // the click sent nothing
+
+    await app.click(COLUMNS / 2, 15); // a click inside the confirm panel: still nothing
+    await app.settle(200);
+    expect(app.flat()).toContain("enter apply");
+    expect(app.server.writes).toEqual([]);
+
+    await app.press(KEY.enter); // only this saves
+    await app.settle(500);
+    expect(app.server.writes).toEqual([{ priority: 4 }]);
+    app.unmount();
+  });
+
+  test("clicking outside the panel cancels: nothing sent, nothing opened underneath", async () => {
+    const app = await startApp();
+    await openPicker(app);
+    await app.click(0, 0);
+    await app.settle(200);
+    expect(app.screen()).not.toContain("Change priority");
+    expect(app.screen()).not.toContain("DESCRIPTION");
+    expect(app.server.writes).toEqual([]);
+
+    // Also from the confirm screen.
+    await openPicker(app);
+    await app.press(KEY.down, KEY.enter); // a different value, so the confirm screen offers to apply it
+    expect(app.flat()).toContain("enter apply");
+    await app.click(0, 0);
+    await app.settle(200);
+    expect(app.screen()).not.toContain("Change priority");
+    expect(app.server.writes).toEqual([]);
+    app.unmount();
+  });
+
+  test("the wheel moves the picker's cursor", async () => {
+    const app = await startApp();
+    await openPicker(app);
+    const cursorRow = () => app.rowsOf().find((row) => row.includes("▌ ") && row.includes("┃"));
+    expect(cursorRow()).toContain("High"); // the current priority starts highlighted
+    await app.wheel("down", COLUMNS / 2, 15);
+    expect(cursorRow()).toContain("Medium");
+    await app.wheel("up", COLUMNS / 2, 15);
+    await app.wheel("up", COLUMNS / 2, 15);
+    expect(cursorRow()).toContain("Urgent");
+    expect(app.server.writes).toEqual([]);
+    app.unmount();
+  });
+
+  test("clicking in the gap beside the options (header, footer) does nothing", async () => {
+    const app = await startApp();
+    await openPicker(app);
+    const before = app.screen();
+    await app.click(COLUMNS / 2, rowOf(app, "Change priority"));
+    await app.click(COLUMNS / 2, rowOf(app, "enter select"));
+    expect(app.screen()).toBe(before);
     app.unmount();
   });
 });

@@ -58,6 +58,15 @@ export const messageHeight = (width: number, message: string): number =>
 // ---------------------------------------------------------------------------
 // The list to choose from. Scrolls if there are more options than rows.
 // ---------------------------------------------------------------------------
+// Which options the picker shows: `room` rows, starting at option `start`, chosen so the
+// cursor stays in view. The drawing and the mouse (which option is under a click?) both
+// use this, so they always agree.
+export function pickerWindow(optionCount: number, cursor: number, height: number): { start: number; room: number } {
+  const room = Math.max(1, height - HEADER_HEIGHT - FOOTER_HEIGHT);
+  const start = Math.max(0, Math.min(optionCount - room, cursor - Math.floor(room / 2)));
+  return { start, room };
+}
+
 export function PickerView({
   title,
   issue,
@@ -75,9 +84,8 @@ export function PickerView({
   width: number;
   height: number;
 }) {
-  const room = Math.max(1, height - HEADER_HEIGHT - FOOTER_HEIGHT);
   // Show a window of `room` options that keeps the cursor in view.
-  const start = Math.max(0, Math.min(options.length - room, cursor - Math.floor(room / 2)));
+  const { start, room } = pickerWindow(options.length, cursor, height);
   const visible = options.slice(start, start + room);
 
   return (

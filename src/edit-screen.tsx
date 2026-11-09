@@ -14,8 +14,9 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import { useInput, useWindowSize } from "ink";
 import type { Key } from "ink";
-import { ConfirmView, MessageView, PickerView, confirmHeight, messageHeight, pickerHeight } from "./edit-views.tsx";
-import { Panel, panelGeometry } from "./panel.tsx";
+import { ConfirmView, MessageView, PickerView, confirmHeight, messageHeight, pickerHeight, pickerWindow } from "./edit-views.tsx";
+import { useMouse } from "./mouse-context.ts";
+import { HEADER_HEIGHT, Panel, insidePanel, panelGeometry } from "./panel.tsx";
 import {
   EDIT_FIELD,
   EDIT_TITLE,
@@ -169,6 +170,33 @@ export function EditScreen({
     for (const char of expandBurst(input)) handleKey(char, key);
   });
 
+  // ---- Mouse --------------------------------------------------------------------
+  // A click can only MOVE AROUND the flow; it can never save. Saving stays Enter on the
+  // confirm screen (`save()` is not called from here, and a test checks no write is sent).
+  //  - wheel: moves the cursor in the picker
+  //  - click outside the panel: cancel (nothing is sent), except while a write is in flight
+  //  - click on an option: choose it, which goes to the CONFIRM screen
+  // `geometryRef` is set while drawing below, so a click uses the panel as last drawn.
+  const geometryRef = useRef<ReturnType<typeof panelGeometry> | null>(null);
+  useMouse((event) => {
+    const stage = stageRef.current;
+    const geometry = geometryRef.current;
+    if (stage.name === "saving" || !geometry) return;
+    if (event.kind === "wheel") {
+      moveCursor(event.direction === "up" ? -1 : 1);
+    } else if (event.kind === "press" && event.button === "left") {
+      if (!insidePanel(geometry, event.x, event.y)) {
+        onCancel();
+      } else if (stage.name === "pick") {
+        const { start, room } = pickerWindow(stage.options.length, stage.cursor, geometry.contentHeight);
+        const row = event.y - (geometry.top + 1 + HEADER_HEIGHT); // 0 = the first visible option
+        if (row >= 0 && row < room && start + row < stage.options.length) {
+          setStage({ name: "confirm", options: stage.options, cursor: start + row });
+        }
+      }
+    }
+  });
+
   // ---- Drawing ----------------------------------------------------------------
   // The edit flow is a panel that floats, centred, over the screen below. The width
   // depends only on the terminal; each stage then says how tall it needs to be; and
@@ -233,5 +261,6 @@ export function EditScreen({
   }
 
   const geometry = panelGeometry(columns, rows, view.wanted);
+  geometryRef.current = geometry;
   return <Panel geometry={geometry}>{view.render(geometry.contentHeight)}</Panel>;
 }

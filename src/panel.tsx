@@ -51,6 +51,10 @@ export function panelGeometry(columns: number, rows: number, wantedContentHeight
   };
 }
 
+// Is the screen cell (x, y) (0-based, as mouse events give them) inside the panel?
+export const insidePanel = (g: PanelGeometry, x: number, y: number): boolean =>
+  x >= g.left && x < g.left + g.width && y >= g.top && y < g.top + g.height;
+
 // ---------------------------------------------------------------------------
 // The floating panel itself: a heavy-lined border with ROUNDED corners (there is no
 // such built-in style, so the characters are spelled out), in the accent color.

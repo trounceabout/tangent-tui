@@ -52,6 +52,14 @@ const LIST_HELP: Section[] = [
     ],
   },
   {
+    title: "Mouse",
+    entries: [
+      ["click", "open / fold group"],
+      ["wheel", "scroll the list"],
+      ["m", "mouse on / off"],
+    ],
+  },
+  {
     title: "App",
     entries: [
       ["?", "this help"],
@@ -81,6 +89,10 @@ const DETAIL_HELP: Section[] = [
       ["P", "priority"],
       ["e", "estimate"],
     ],
+  },
+  {
+    title: "Mouse",
+    entries: [["wheel", "scroll"]],
   },
   {
     title: "Leave",

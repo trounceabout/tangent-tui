@@ -52,14 +52,14 @@ describe("helpLines", () => {
 
   test("the board's help lists every key the board responds to", () => {
     const keys = keysOf("list");
-    for (const key of ["↑↓", "j", "k", "g", "G", "tab", "enter", "space", "o", "r", "/", "t", "p", "L", "esc", "s", "P", "e", "?", "q"]) {
+    for (const key of ["↑↓", "j", "k", "g", "G", "tab", "enter", "space", "o", "r", "/", "t", "p", "L", "esc", "s", "P", "e", "?", "q", "click", "wheel", "m"]) {
       expect(keys).toContain(key);
     }
   });
 
   test("the detail screen's help lists its keys, including the ones to leave", () => {
     const keys = keysOf("detail");
-    for (const key of ["↑↓", "j", "k", "space", "b", "g", "G", "o", "s", "P", "e", "esc", "q", "h", "?"]) {
+    for (const key of ["↑↓", "j", "k", "space", "b", "g", "G", "o", "s", "P", "e", "esc", "q", "h", "?", "wheel"]) {
       expect(keys).toContain(key);
     }
   });

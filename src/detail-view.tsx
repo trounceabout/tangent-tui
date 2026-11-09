@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput, useWindowSize } from "ink";
 import type { Key } from "ink";
 import { expandBurst } from "./keys.ts";
+import { WHEEL_LINES, useMouse } from "./mouse-context.ts";
 import { cleanText, formatDue, formatEstimate, getApiKey, isFinished } from "./linear.ts";
 import type { Issue } from "./linear.ts";
 import { buildBodyLines, fetchIssueDetail, wrapText } from "./detail.ts";
@@ -112,6 +113,11 @@ export function DetailView({
   // A chunk like "jjj" counts as three presses (see keys.ts).
   // isActive: switched OFF while the edit panel floats over this screen, so one keypress
   // never drives two things at once.
+  // Wheel scrolls the body (only while this screen has the input: not under a panel).
+  useMouse((event) => {
+    if (event.kind === "wheel") scrollBy(event.direction === "up" ? -WHEEL_LINES : WHEEL_LINES);
+  }, inputActive);
+
   useInput(
     (input, key) => {
       for (const char of expandBurst(input)) handleKey(char, key);

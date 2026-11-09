@@ -9,7 +9,8 @@ import type { Key } from "ink";
 import { HELP_TITLE, helpLines, helpSubtitle, keyColumnWidth } from "./help.ts";
 import type { HelpKind, HelpLine } from "./help.ts";
 import { expandBurst } from "./keys.ts";
-import { FOOTER_HEIGHT, HEADER_HEIGHT, Panel, PanelFooter, PanelHeader, panelGeometry } from "./panel.tsx";
+import { WHEEL_LINES, useMouse } from "./mouse-context.ts";
+import { FOOTER_HEIGHT, HEADER_HEIGHT, Panel, PanelFooter, PanelHeader, insidePanel, panelGeometry } from "./panel.tsx";
 import { PANEL_ACCENT } from "./theme.ts";
 
 // How tall the panel wants to be: its header and footer, plus every line, up to the room
@@ -99,6 +100,11 @@ export function HelpScreen({ kind, onClose }: { kind: HelpKind; onClose: () => v
   };
   useInput((input, key) => {
     for (const char of expandBurst(input)) handleKey(char, key);
+  });
+  // Wheel scrolls the help. A click outside the panel closes it, like Esc.
+  useMouse((event) => {
+    if (event.kind === "wheel") scrollBy(event.direction === "up" ? -WHEEL_LINES : WHEEL_LINES);
+    else if (event.kind === "press" && event.button === "left" && !insidePanel(geometry, event.x, event.y)) onClose();
   });
 
   return (
