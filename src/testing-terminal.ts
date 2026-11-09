@@ -54,7 +54,9 @@ export function mountTerminal(node: ReactElement, { columns = 60, rows = 24 } = 
     // The current screen as plain text (colors removed).
     screen: () => (frames.at(-1) ?? "").replace(ANSI, ""),
     // The same, with line breaks and runs of spaces collapsed, for text that may wrap.
-    flat: () => (frames.at(-1) ?? "").replace(ANSI, "").replace(/\s+/g, " "),
+    // The panel's side borders are dropped too: text wrapped inside a panel would
+    // otherwise have "┃ ┃" in the middle of it.
+    flat: () => (frames.at(-1) ?? "").replace(ANSI, "").replace(/[┃│]/g, " ").replace(/\s+/g, " "),
     async settle(ms = 120) {
       await wait(ms);
     },

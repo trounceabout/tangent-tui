@@ -65,7 +65,10 @@ The edit flow floats over whichever screen is showing (list or detail); the scre
 - **Sizes are computed, not measured.** `pickerHeight`, `confirmHeight` and `messageHeight` must equal the lines the view really draws. Anything that can wrap (the warning, the dry-run banner, the "nothing to change" text) is wrapped by us with `wrapText` so its line count is known. A miscount makes flexbox squash the spacing, which once cut the first line of the finishing-status warning in a narrow pane.
 - **Every picker option is exactly ONE line** (one outer `Text` with `wrap="truncate-end"`), because the scrolling assumes it.
 - The confirm screen stacks the change on three lines when it doesn't fit on one, so the DESTINATION is never cut off.
-- Under 60 columns the panel takes the full width; a margin there only reveals stray characters of the screen below.
+- Under 100 columns the panel takes the full width. A margin there only reveals stray fragments of the screen below, which look like glitches. From 100 columns it floats, centred, at most 64 wide.
+- **The look**, so it stays pronounced: heavy `━`/`┃` lines with ROUNDED corners (a custom `borderStyle` object, since Ink has no built-in heavy-round style), in the accent `PANEL_ACCENT` (`theme.ts`, Linear's purple-blue, readable on light and dark terminals), and a title bar with the accent as its background (a negative `marginX` makes it run edge to edge past the panel's padding).
+- **No drop shadow, on purpose.** A `░` shadow was tried and removed: the user's terminal draws it as a heavy solid gray block, which looked clunky. A test asserts no `░` is drawn. Don't add one back.
+- Colors don't show in plain-text test output (Ink strips them), so the tests check the characters (border, title). To check actual colors, capture a real pane with `rex capture --format=vt` and grep for the escape codes (`38;2;94;106;210` is the accent foreground, `48;2;94;106;210` its background).
 - Check the panel on a real narrow pane in dry-run. The first real look at a 32-column pane found three bugs the tests had missed.
 
 ## Tests (`bun test`)

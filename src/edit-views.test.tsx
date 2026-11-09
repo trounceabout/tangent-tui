@@ -154,18 +154,25 @@ describe("MessageView", () => {
 // The panel floats over another screen. These cover where it goes, how big it is,
 // and that it fully covers what's underneath.
 describe("panelGeometry", () => {
-  test("is centred, at most 64 wide, with room for text inside the border and padding", () => {
-    expect(panelGeometry(100, 40, 10)).toEqual({ width: 64, height: 12, left: 18, top: 14, contentWidth: 60, contentHeight: 10 });
-  });
-
-  test("on a narrow terminal it takes the full width, so nothing of the screen below pokes out at the sides", () => {
+  test("below 100 columns it takes the full width, flush left", () => {
+    expect(panelGeometry(80, 40, 10)).toEqual({ width: 80, height: 12, left: 0, top: 14, contentWidth: 76, contentHeight: 10 });
     expect(panelGeometry(30, 40, 5)).toMatchObject({ width: 30, left: 0 });
     expect(panelGeometry(20, 40, 5)).toMatchObject({ width: 20, left: 0 });
-    expect(panelGeometry(59, 40, 5)).toMatchObject({ width: 59, left: 0 });
+    expect(panelGeometry(99, 40, 5)).toMatchObject({ width: 99, left: 0 });
   });
 
-  test("on a wider terminal it keeps a margin and a maximum width", () => {
-    expect(panelGeometry(60, 40, 5)).toMatchObject({ width: 56, left: 2 });
+  // A margin on a narrower terminal only reveals stray characters of the screen below
+  // (a lone "j" beside the panel's corner looked like a glitch).
+  test("so no part of the screen below is left showing at the sides", () => {
+    for (let columns = 15; columns < 100; columns += 7) {
+      const g = panelGeometry(columns, 30, 8);
+      expect(g.left).toBe(0);
+      expect(g.width).toBe(columns); // it spans the whole width
+    }
+  });
+
+  test("from 100 columns it floats centred, at most 64 wide", () => {
+    expect(panelGeometry(100, 40, 10)).toEqual({ width: 64, height: 12, left: 18, top: 14, contentWidth: 60, contentHeight: 10 });
     expect(panelGeometry(200, 40, 5)).toMatchObject({ width: 64, left: 68 });
   });
 
@@ -175,7 +182,7 @@ describe("panelGeometry", () => {
   });
 
   test("always fits inside the screen, at any terminal size", () => {
-    for (let columns = 10; columns <= 120; columns += 5) {
+    for (let columns = 10; columns <= 220; columns += 5) {
       for (let rows = 5; rows <= 60; rows += 5) {
         for (const wanted of [1, 8, 40]) {
           const g = panelGeometry(columns, rows, wanted);
@@ -302,7 +309,7 @@ describe("Panel floating over another screen", () => {
           ))}
         </Box>
         <Panel geometry={geometry}>
-          <Text>hello</Text>
+          <PickerView title="Change status" issue={issue} options={[{ value: 1, label: "Todo" }]} cursor={0} currentIndex={0} width={geometry.contentWidth} height={geometry.contentHeight} />
         </Panel>
       </Box>,
       { columns },
@@ -311,32 +318,62 @@ describe("Panel floating over another screen", () => {
       .split("\n");
     return { out, geometry };
   };
+  // A narrow screen (full-width panel) and a wide one (a floating panel with margins).
+  const sizes: [number, number][] = [
+    [40, 14],
+    [120, 20],
+  ];
 
-  test("draws a border at the computed position", () => {
-    const { out, geometry: g } = screen(40, 14, 5);
-    expect(out[g.top]?.[g.left]).toBe("╭");
-    expect(out[g.top]?.[g.left + g.width - 1]).toBe("╮");
-    expect(out[g.top + g.height - 1]?.[g.left]).toBe("╰");
-    expect(out[g.top + g.height - 1]?.[g.left + g.width - 1]).toBe("╯");
+  test("draws a rounded border at the computed position, with heavy lines", () => {
+    for (const [columns, rows] of sizes) {
+      const { out, geometry: g } = screen(columns, rows, pickerHeight(1, 50));
+      expect(out[g.top]?.[g.left]).toBe("╭");
+      expect(out[g.top]?.[g.left + g.width - 1]).toBe("╮");
+      expect(out[g.top + g.height - 1]?.[g.left]).toBe("╰");
+      expect(out[g.top + g.height - 1]?.[g.left + g.width - 1]).toBe("╯");
+      expect(out[g.top]?.[g.left + 1]).toBe("━"); // heavy horizontal
+      expect(out[g.top + 1]?.[g.left]).toBe("┃"); // heavy vertical
+    }
+  });
+
+  test("shows the title in the bar at the top and the issue under it", () => {
+    for (const [columns, rows] of sizes) {
+      const { out, geometry: g } = screen(columns, rows, pickerHeight(1, 50));
+      expect(out[g.top + 1]).toContain("Change status");
+      expect(out[g.top + 2]).toContain("PD-3066");
+    }
   });
 
   test("covers EVERYTHING underneath it: no part of the screen below shows through", () => {
-    const { out, geometry: g } = screen(40, 14, 5);
-    for (let row = g.top + 1; row < g.top + g.height - 1; row++) {
-      const inside = (out[row] ?? "").slice(g.left + 1, g.left + g.width - 1);
-      expect(inside).not.toContain("X");
+    for (const [columns, rows] of sizes) {
+      const { out, geometry: g } = screen(columns, rows, pickerHeight(1, 50));
+      for (let row = g.top + 1; row < g.top + g.height - 1; row++) {
+        const inside = (out[row] ?? "").slice(g.left + 1, g.left + g.width - 1);
+        expect(inside).not.toContain("X");
+      }
+      expect(out.join("\n")).toContain("Todo"); // and its own content is drawn
     }
-    expect(out.join("\n")).toContain("hello"); // and its own content is drawn
   });
 
-  test("leaves the screen untouched everywhere outside it", () => {
-    const { out, geometry: g } = screen(40, 14, 5);
-    for (let row = 0; row < 14; row++) {
-      const line = out[row] ?? "";
-      if (row < g.top || row >= g.top + g.height) expect(line).toBe("X".repeat(40)); // rows above and below
-      else {
-        expect(line.slice(0, g.left)).toBe("X".repeat(g.left)); // left of the panel
-        expect(line.slice(g.left + g.width)).toBe("X".repeat(40 - g.left - g.width)); // right of it
+  // The panel once had a drop shadow; it was removed because it looked heavy.
+  test("has no shadow: nothing is drawn outside the panel", () => {
+    for (const [columns, rows] of sizes) {
+      const { out } = screen(columns, rows, pickerHeight(1, 50));
+      expect(out.join("")).not.toContain("░");
+    }
+  });
+
+  test("leaves the screen untouched everywhere outside the panel", () => {
+    for (const [columns, rows] of sizes) {
+      const { out, geometry: g } = screen(columns, rows, pickerHeight(1, 50));
+      for (let row = 0; row < rows; row++) {
+        const line = out[row] ?? "";
+        if (row < g.top || row >= g.top + g.height) {
+          expect(line).toBe("X".repeat(columns)); // rows above and below the panel
+        } else {
+          expect(line.slice(0, g.left)).toBe("X".repeat(g.left)); // left of the panel
+          expect(line.slice(g.left + g.width)).toBe("X".repeat(columns - g.left - g.width)); // right of it
+        }
       }
     }
   });

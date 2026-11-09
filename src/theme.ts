@@ -9,3 +9,7 @@ export const BAR_GRAY = "#8a8f98";
 
 // Overdue due dates.
 export const OVERDUE_RED = "#eb5757";
+
+// The edit panel that floats over the screen. The accent is Linear's own purple-blue,
+// which shows up on both light and dark terminals.
+export const PANEL_ACCENT = "#5e6ad2";

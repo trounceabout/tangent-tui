@@ -68,7 +68,7 @@ The `t`, `p` and `L` keys step through values (all → first → second → … 
 
 With an issue selected (in the list or the detail screen), press `s` (status), `P` (priority, capital) or `e` (estimate). A **panel opens over the screen you're on**, so you keep your context. Pick a value with `↑↓` and `Enter`, then **confirm**, which shows exactly what will change (`Status  Todo → In Progress`). Nothing is sent until that second `Enter`. `Esc` goes back a step, and closes the panel from the picker. While the panel is open its keys are the only ones active; the screen underneath keeps its place.
 
-After a change you stay on the screen you were on, and it shows Linear's new value once the board reloads, with a `✓` confirmation in the footer. In a narrow terminal (under 60 columns) the panel takes the full width.
+After a change you stay on the screen you were on, and it shows Linear's new value once the board reloads, with a `✓` confirmation in the footer. The panel has a colored title bar and a heavy rounded border in Linear's accent color, so it stands out from the page beneath. In a terminal under 100 columns wide it spans the full width; wider than that it floats, centred.
 
 - Statuses are the issue's **own team's** (they differ between teams).
 - Estimates work for T-shirt teams only; other scales say "not supported yet".
