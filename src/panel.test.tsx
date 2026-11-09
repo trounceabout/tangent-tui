@@ -13,21 +13,14 @@ const issue = makeIssue({ identifier: "PD-3066", title: "Design VM deployment fl
 // The panel floats over another screen. These cover where it goes, how big it is,
 // and that it fully covers what's underneath.
 describe("panelGeometry", () => {
+  // A margin on a narrower terminal only reveals stray characters of the screen below
+  // (a lone "j" beside the panel's corner looked like a glitch), so the panel spans the
+  // whole width and no part of the screen below is left showing at the sides.
   test("below 100 columns it takes the full width, flush left", () => {
     expect(panelGeometry(80, 40, 10)).toEqual({ width: 80, height: 12, left: 0, top: 14, contentWidth: 76, contentHeight: 10 });
     expect(panelGeometry(30, 40, 5)).toMatchObject({ width: 30, left: 0 });
     expect(panelGeometry(20, 40, 5)).toMatchObject({ width: 20, left: 0 });
     expect(panelGeometry(99, 40, 5)).toMatchObject({ width: 99, left: 0 });
-  });
-
-  // A margin on a narrower terminal only reveals stray characters of the screen below
-  // (a lone "j" beside the panel's corner looked like a glitch).
-  test("so no part of the screen below is left showing at the sides", () => {
-    for (let columns = 15; columns < 100; columns += 7) {
-      const g = panelGeometry(columns, 30, 8);
-      expect(g.left).toBe(0);
-      expect(g.width).toBe(columns); // it spans the whole width
-    }
   });
 
   test("from 100 columns it floats centred, at most 64 wide", () => {

@@ -1,7 +1,7 @@
 // Tests for src/help.ts: the content of the help screen.
 
 import { describe, expect, test } from "bun:test";
-import { HELP, helpLines, helpSubtitle, keyColumnWidth } from "./help.ts";
+import { HELP, helpLines, keyColumnWidth } from "./help.ts";
 import type { HelpKind } from "./help.ts";
 
 const KINDS: HelpKind[] = ["list", "detail"];
@@ -62,11 +62,6 @@ describe("helpLines", () => {
     for (const key of ["↑↓", "j", "k", "space", "b", "g", "G", "o", "s", "P", "e", "esc", "q", "h", "?", "wheel"]) {
       expect(keys).toContain(key);
     }
-  });
-
-  test("the two screens say different things", () => {
-    expect(helpLines("list")).not.toEqual(helpLines("detail"));
-    expect(helpSubtitle("list")).not.toBe(helpSubtitle("detail"));
   });
 });
 

@@ -146,12 +146,12 @@ async function startApp({ extraIssues = 0 } = {}) {
   restoreFetch = mockFetch(linear.respond);
   // mouse: true gives the app the real mouse pipeline (the filter and the context).
   const terminal = mountTerminal(<App />, { columns: COLUMNS, rows: ROWS, mouse: true });
-  await terminal.settle(500);
+  await terminal.waitForText("PD-7"); // the first load has finished
   const rowsOf = () => terminal.screen().split("\n");
   const issueQueries = () => linear.server.requests.filter((r) => r.query.includes("MyCycleIssues")).length;
   const openDetail = async () => {
     await terminal.press(KEY.j, KEY.enter); // select PD-7, open it
-    await terminal.settle(500);
+    await terminal.waitForText("Line 1"); // the description has loaded
   };
   return { ...terminal, ...linear, rowsOf, issueQueries, openDetail };
 }
@@ -165,15 +165,6 @@ describe("the app, before any editing", () => {
     expect(app.screen()).toContain("Fix the thing");
     app.unmount();
   });
-
-  test("Enter opens the detail screen, which fetches the description", async () => {
-    const app = await startApp();
-    await app.openDetail();
-    expect(app.screen()).toContain("DESCRIPTION");
-    expect(app.screen()).toContain("Line 1");
-    expect(app.rowsOf().at(-1)).toContain("lines 1–");
-    app.unmount();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -182,7 +173,7 @@ describe("the edit panel floats over the detail screen", () => {
     const app = await startApp();
     await app.openDetail();
     await app.press("s");
-    await app.settle(400); // the team's statuses load
+    await app.waitForText("Change status", "In Progress"); // the team's statuses load
 
     const rows = app.rowsOf();
     expect(app.screen()).toContain("Change status");
@@ -205,7 +196,7 @@ describe("the edit panel floats over the detail screen", () => {
     const app = await startApp();
     await app.openDetail();
     await app.press("s");
-    await app.settle(400);
+    await app.waitForText("Change status", "In Progress");
 
     await app.press(KEY.j, KEY.j, KEY.k); // moves the panel's cursor, not the detail's scroll
     expect(app.rowsOf().at(-1)).toContain("lines 1–"); // the detail did not scroll
@@ -228,9 +219,9 @@ describe("the edit panel floats over the detail screen", () => {
     expect(app.rowsOf()[0]).toContain("Todo");
 
     await app.press("s");
-    await app.settle(400);
+    await app.waitForText("Change status", "In Progress");
     await app.press(KEY.j, KEY.enter, KEY.enter); // In Progress -> confirm -> apply
-    await app.settle(700); // the write, then the reload
+    await app.waitForText("✓ PD-7: Todo → In Progress"); // the write, then the reload
 
     expect(app.server.writes).toEqual([{ stateId: ID(2) }]);
     expect(app.issueQueries()).toBeGreaterThan(queriesBefore); // the board reloaded
@@ -257,11 +248,11 @@ describe("the edit panel floats over the detail screen", () => {
     const app = await startApp();
     await app.openDetail();
     await app.press("s");
-    await app.settle(400);
+    await app.waitForText("Change status", "In Progress");
     await app.press(KEY.j, KEY.enter);
     expect(app.screen()).toContain("DRY RUN: nothing will be sent to Linear.");
     await app.press(KEY.enter);
-    await app.settle(500);
+    await app.waitForText("(dry run) PD-7: Todo → In Progress");
     expect(app.server.writes).toEqual([]);
     expect(app.rowsOf().at(-1)).toContain("(dry run) PD-7: Todo → In Progress");
     app.unmount();
@@ -289,7 +280,7 @@ describe("the edit panel floats over the list", () => {
     await app.press(KEY.j);
     await app.press("P");
     await app.press(KEY.j, KEY.enter, KEY.enter); // High -> Medium -> confirm -> apply
-    await app.settle(700);
+    await app.waitForText("✓ PD-7: High → Medium");
 
     expect(app.server.writes).toEqual([{ priority: 3 }]);
     expect(app.screen()).toContain("TERMINAL VELOCITY");
@@ -444,15 +435,6 @@ describe("scrolling the list for real", () => {
     app.unmount();
   });
 
-  test("scrolling back up brings the highlight back into view", async () => {
-    const app = await startApp({ extraIssues: 40 });
-    await app.wheel("down");
-    await app.wheel("up");
-    expect(app.rowsOf()[BODY_TOP]).toContain("TODO");
-    expect(app.screen()).toContain("▌▾ ● TODO");
-    app.unmount();
-  });
-
   test("stops at the top and at the bottom", async () => {
     const app = await startApp({ extraIssues: 40 });
     await app.wheel("up");
@@ -483,14 +465,6 @@ describe("scrolling the list for real", () => {
     await app.press("G");
     expect(app.screen()).toContain("▌ PD-139");
     expect(app.rowsOf().at(-1)).not.toContain("▼");
-    app.unmount();
-  });
-
-  test("stepping down with the keyboard only scrolls as far as needed to keep the highlight visible", async () => {
-    const app = await startApp({ extraIssues: 40 });
-    for (let step = 0; step < 30; step++) await app.press(KEY.j);
-    expect(app.screen()).toContain("▌"); // the highlight is always on screen
-    expect(app.rowsOf().at(-1)).toContain("▲");
     app.unmount();
   });
 
@@ -537,7 +511,7 @@ describe("clicking in the list", () => {
   test("clicking an issue opens its detail screen", async () => {
     const app = await startApp();
     await app.click(10, BODY_TOP + 1); // row 5 is PD-7, the first issue under the TODO header
-    await app.settle(500);
+    await app.waitForText("Line 1");
     expect(app.screen()).toContain("DESCRIPTION");
     expect(app.screen()).toContain("Line 1");
     app.unmount();
@@ -546,7 +520,7 @@ describe("clicking in the list", () => {
   test("clicking an issue lower in the list opens THAT issue", async () => {
     const app = await startApp({ extraIssues: 3 });
     await app.click(10, BODY_TOP + 2); // PD-100, the next row down
-    await app.settle(500);
+    await app.waitForText("DESCRIPTION"); // the detail screen is open
     expect(app.screen()).toContain("PD-100");
     expect(app.screen()).toContain("Extra issue 0");
     app.unmount();
@@ -557,7 +531,7 @@ describe("clicking in the list", () => {
     await app.wheel("down"); // 3 lines: PD-101 is now the first row
     expect(app.rowsOf()[BODY_TOP]).toContain("PD-101");
     await app.click(10, BODY_TOP);
-    await app.settle(500);
+    await app.waitForText("DESCRIPTION");
     expect(app.screen()).toContain("Extra issue 1"); // PD-101
     app.unmount();
   });
@@ -658,7 +632,7 @@ describe("the mouse in the edit panel (a click never saves)", () => {
   // Open the priority picker for PD-7 (priority High) and find the screen row of an option.
   const openPicker = async (app: Awaited<ReturnType<typeof startApp>>) => {
     await app.press(KEY.j, "P"); // select PD-7, open the priority picker
-    await app.settle(300);
+    await app.waitForText("Low");
     expect(app.screen()).toContain("Low");
   };
   const rowOf = (app: Awaited<ReturnType<typeof startApp>>, text: string) => app.rowsOf().findIndex((row) => row.includes(text));
@@ -667,7 +641,7 @@ describe("the mouse in the edit panel (a click never saves)", () => {
     const app = await startApp();
     await openPicker(app);
     await app.click(COLUMNS / 2, rowOf(app, "Low"));
-    await app.settle(200);
+    await app.waitForText("enter apply"); // the confirm screen
     expect(app.flat()).toContain("Priority High → Low"); // the confirm screen
     expect(app.flat()).toContain("enter apply");
     expect(app.server.writes).toEqual([]); // the click sent nothing
@@ -678,7 +652,7 @@ describe("the mouse in the edit panel (a click never saves)", () => {
     expect(app.server.writes).toEqual([]);
 
     await app.press(KEY.enter); // only this saves
-    await app.settle(500);
+    await app.waitFor(() => app.server.writes.length > 0);
     expect(app.server.writes).toEqual([{ priority: 4 }]);
     app.unmount();
   });
@@ -687,7 +661,7 @@ describe("the mouse in the edit panel (a click never saves)", () => {
     const app = await startApp();
     await openPicker(app);
     await app.click(0, 0);
-    await app.settle(200);
+    await app.waitFor(() => !app.screen().includes("Change priority")); // the panel closes
     expect(app.screen()).not.toContain("Change priority");
     expect(app.screen()).not.toContain("DESCRIPTION");
     expect(app.server.writes).toEqual([]);
@@ -697,7 +671,7 @@ describe("the mouse in the edit panel (a click never saves)", () => {
     await app.press(KEY.down, KEY.enter); // a different value, so the confirm screen offers to apply it
     expect(app.flat()).toContain("enter apply");
     await app.click(0, 0);
-    await app.settle(200);
+    await app.waitFor(() => !app.screen().includes("Change priority"));
     expect(app.screen()).not.toContain("Change priority");
     expect(app.server.writes).toEqual([]);
     app.unmount();

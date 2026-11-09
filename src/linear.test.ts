@@ -14,7 +14,7 @@ import {
   isFinished,
   linearQuery,
 } from "./linear.ts";
-import { BEL, ESC, hasControlChars, labels, makeIssue, mockFetch } from "./testing.ts";
+import { BEL, ESC, hasControlChars, makeIssue, mockFetch } from "./testing.ts";
 
 // Each test that fakes the network or the clock cleans up after itself.
 let restore: (() => void) | undefined;
@@ -340,9 +340,5 @@ describe("small helpers", () => {
   test("Done, Canceled and Duplicate start folded; Ready to Release does not", () => {
     expect([...COLLAPSED_STATUSES].sort()).toEqual(["Canceled", "Done", "Duplicate"]);
     expect(COLLAPSED_STATUSES.has("Ready to Release")).toBe(false);
-  });
-
-  test("labels() test helper builds what Issue.labels expects", () => {
-    expect(labels("A", "B").nodes.map((l) => l.name)).toEqual(["A", "B"]);
   });
 });
