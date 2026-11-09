@@ -312,6 +312,8 @@ export function formatDue(issue: Issue): { text: string; overdue: boolean } | nu
   // A malformed date means "no usable due date", not a made-up one.
   if (y === undefined || m === undefined || d === undefined) return null;
   const date = new Date(y, m - 1, d);
+  // Pieces that aren't numbers ("a-b-c") produce an invalid date: also unusable.
+  if (Number.isNaN(date.getTime())) return null;
   const text = `due ${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
 
   const today = new Date();
