@@ -379,12 +379,23 @@ describe("when the write fails", () => {
     edit.unmount();
   });
 
+  // errorText() cleans whatever error arrives before it is drawn. A GraphQL error from
+  // Linear is already made harmless by JSON.stringify (ESC becomes the text \u001b), so to
+  // exercise this layer the error itself must carry a raw escape, like a failed network call
+  // could. (This test used a plain HTTP 500, whose message is our own fixed text, so it
+  // had nothing to clean.) An OSC 8 hyperlink is used because the test terminal's own ANSI
+  // stripper would hide ordinary colour codes, and Ink lets hyperlinks through.
   test("an error text containing escape sequences is cleaned before it is shown", async () => {
-    const edit = mount("priority", () => new Response("x", { status: 500 }));
+    const hostile = `bad${ESC}]8;;https://evil.example\u0007link${ESC}]8;;\u0007 text`;
+    const edit = mount("priority", () => {
+      throw new Error(hostile);
+    });
     await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter, KEY.enter);
     await edit.waitForText("Linear didn't apply the change");
+    expect(edit.flat()).toContain("bad"); // the readable part is still shown
     expect(edit.screen()).not.toContain(ESC);
+    expect(edit.screen()).not.toContain("\u0007");
     edit.unmount();
   });
 
