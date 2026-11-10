@@ -1,9 +1,20 @@
 # Release: when a version tag like v0.1.0 is pushed, check the code, build the macOS binaries,
 # and publish them as a GitHub Release with a SHA256SUMS file and build-provenance attestations.
 #
-# To release:   npm version patch   (bumps package.json and makes the v0.1.1 tag)
-#               git push origin main --follow-tags
-# A tag with a pre-release part (v0.2.0-rc.1) is published as a pre-release.
+# To release, with the version bump on main (and `git pull` done):
+#     npm version patch            bumps package.json and tags that commit, e.g. v0.1.1
+#     git push origin main --follow-tags
+#
+# If main requires pull requests, bump in a PR instead, then tag AFTER it has merged:
+#     npm version patch --no-git-tag-version      (on the PR branch, commit and merge it)
+#     git checkout main && git pull
+#     git tag v0.1.1 && git push origin v0.1.1
+# Tag the commit that is on main. A tag made on the PR branch is refused after a squash
+# merge, because the squash rewrites the commit and the tag's commit is then not on main.
+#
+# A tag with a pre-release part (v0.2.0-rc.1) is published as a pre-release. GitHub's
+# "latest release" skips pre-releases, so install an rc by naming it:
+#     curl -fsSL .../install.sh | TERMINAL_VELOCITY_VERSION=v0.2.0-rc.1 sh
 #
 # Anyone who can push a tag can publish a release, so this workflow refuses tags whose commit
 # isn't on main, and tags that don't match the version in package.json.
@@ -26,6 +37,9 @@ jobs:
   release:
     # macOS because the binaries are re-signed with codesign (see scripts/build.ts).
     runs-on: macos-latest
+    # A hung build or upload would otherwise hold the runner for GitHub's 6-hour default, and
+    # the next tag waits behind it (concurrency above). The whole job normally takes minutes.
+    timeout-minutes: 30
     permissions:
       contents: write # create the release and upload files
       id-token: write # lets GitHub sign the build provenance
@@ -62,6 +76,16 @@ jobs:
       - run: bun test
 
       - run: bun run build
+
+      # Run what we are about to publish. The failures this project has already had (a startup
+      # crash from a missing module, a broken signature that makes macOS kill the file) all
+      # "build fine and die when run". --version needs no terminal, and must print the tag's
+      # version. Only the arm64 binary is run: this runner is Apple Silicon and may not have
+      # Rosetta, so the x64 binary is NOT tested here.
+      - name: Smoke-test the arm64 binary
+        run: |
+          out="$(dist/terminal-velocity-darwin-arm64 --version)"
+          [ "$out" = "terminal-velocity ${TAG#v}" ] || { echo "unexpected output: $out"; exit 1; }
 
       - name: Write SHA256SUMS and check it
         working-directory: dist

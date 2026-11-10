@@ -130,7 +130,9 @@ describe("release workflow", () => {
     // YAML reads a bare `on` as the boolean true, so Bun.YAML names this key "true".
     true: { push: { tags: string[] } } & Record<string, unknown>;
     permissions: Record<string, string>;
-    jobs: { release: { permissions: Record<string, string>; steps: Step[]; "runs-on": string } };
+    jobs: {
+      release: { permissions: Record<string, string>; steps: Step[]; "runs-on": string; "timeout-minutes"?: number };
+    };
   };
   let wf: Workflow;
   let text = "";
@@ -199,6 +201,37 @@ describe("release workflow", () => {
     expect(publish?.run).toContain("dist/SHA256SUMS");
     for (const name of TARGET_NAMES.map(binaryName)) expect(publish?.run).toContain(`dist/${name}`);
     expect(steps().some((s) => s.uses?.startsWith("actions/attest-build-provenance@"))).toBe(true);
+  });
+
+  // Without a limit a hung step holds the runner for GitHub's 6-hour default, and the next
+  // tag queues behind it (concurrency: release, cancel-in-progress: false).
+  test("the job has a timeout, so a hung step can't hold up later releases", () => {
+    const minutes = wf.jobs.release["timeout-minutes"];
+    expect(minutes).toBeGreaterThan(0);
+    expect(minutes).toBeLessThanOrEqual(60);
+  });
+
+  // The failures this project has had were all "builds fine, dies when run".
+  test("a published binary is run with --version after it is built and before it is checksummed", () => {
+    const index = (match: (s: Step) => boolean) => steps().findIndex(match);
+    const arm = `dist/${binaryName("darwin-arm64")}`;
+    const build = index((s) => s.run === "bun run build");
+    const smoke = index((s) => s.run?.includes(`${arm} --version`) ?? false);
+    const sums = index((s) => s.run?.includes("release.ts sums") ?? false);
+    const attest = index((s) => s.uses?.startsWith("actions/attest-build-provenance@") ?? false);
+    const publish = index((s) => s.run?.includes("gh release create") ?? false);
+
+    expect(smoke).toBeGreaterThan(-1);
+    expect(smoke).toBeGreaterThan(build);
+    expect(smoke).toBeLessThan(sums);
+    expect(smoke).toBeLessThan(attest);
+    expect(smoke).toBeLessThan(publish);
+  });
+
+  test("the smoke test compares the output with the tag's version and fails the job if it differs", () => {
+    const smoke = steps().find((s) => s.run?.includes("--version"));
+    expect(smoke?.run).toContain("terminal-velocity ${TAG#v}"); // from env, never ${{ }}
+    expect(smoke?.run).toContain("exit 1");
   });
 
   test("runs on macOS, because the binaries are re-signed with codesign", () => {
