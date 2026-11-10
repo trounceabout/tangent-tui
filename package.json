@@ -1,6 +1,10 @@
 {
   "name": "terminal-velocity",
+  "version": "0.1.0",
   "module": "index.tsx",
+  "bin": {
+    "terminal-velocity": "./index.tsx"
+  },
   "type": "module",
   "private": true,
   "scripts": {
