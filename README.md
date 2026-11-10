@@ -25,7 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/trounceabout/terminal-velocity/main
 
 This downloads the latest release for your Mac, checks it against the release's checksum, and installs a `terminal-velocity` command into `~/.local/bin`. It doesn't use `sudo`, doesn't need Bun, and doesn't touch your shell config. If it says `~/.local/bin` is not on your `PATH`, add the line it prints to `~/.zshrc`.
 
-The script is short ([install.sh](install.sh), about 90 lines), so read it before you run it if you like. If it can't verify the download, it installs nothing.
+The script is short ([install.sh](install.sh)), so read it before you run it if you like. If it can't verify the download, or the downloaded program won't start, it installs nothing and leaves any version you already have alone.
 
 To pick a version or a folder, set these on the `sh` side of the pipe:
 
