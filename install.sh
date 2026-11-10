@@ -65,11 +65,17 @@ main() {
 
   # An explicit template, because macOS's bare `mktemp -d` ignores TMPDIR.
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/terminal-velocity.XXXXXX")"
-  trap 'rm -rf "$tmp"' EXIT
+  # `staged` is the half-installed file in the install folder (set below). It must exist
+  # before the trap does, and the trap removes it too, so a failure can't leave it behind.
+  staged=""
+  trap 'rm -rf "$tmp"; [ -z "$staged" ] || rm -f "$staged"' EXIT
 
   say "Downloading $name ($version)..."
   for file in "$name" SHA256SUMS; do
-    curl -fsSL --proto "$protocols" -o "$tmp/$file" "$base_url/$file" || die "could not download $base_url/$file"
+    # --proto only limits the FIRST request; redirects (GitHub downloads redirect) are limited by
+    # --proto-redir, which by default also allows plain http. Give both the same rule.
+    curl -fsSL --proto "$protocols" --proto-redir "$protocols" -o "$tmp/$file" "$base_url/$file" \
+      || die "could not download $base_url/$file"
   done
 
   # Check the download against the release's checksum list. A missing entry is a failure too.
@@ -78,15 +84,22 @@ main() {
   printf '%s\n' "$expected" | (cd "$tmp" && shasum -a 256 -c - >/dev/null 2>&1) \
     || die "checksum does not match for $name. Nothing was installed."
 
-  # Install. Stage the file next to its final home, then rename it into place, so a running
-  # copy is never half-replaced.
+  # Install. Stage the file next to its final home, check that it really runs, then rename it
+  # into place, so a running copy is never half-replaced and a broken download never replaces a
+  # working install. The checksum only shows the file arrived intact; running it is the only
+  # check that macOS will actually start it (a bad signature or wrong build gets it killed).
+  # This is its own statement on purpose: a failing $(...) inside another command's arguments
+  # does not stop `set -e`.
   mkdir -p "$install_dir"
   staged="$install_dir/.terminal-velocity.$$"
   cp "$tmp/$name" "$staged"
   chmod 755 "$staged"
+  version_out="$("$staged" --version)" || version_out=""
+  [ -n "$version_out" ] || die "the downloaded binary does not run on this Mac. Nothing was installed."
   mv -f "$staged" "$install_dir/terminal-velocity"
+  staged=""
 
-  say "Installed $("$install_dir/terminal-velocity" --version) to $install_dir/terminal-velocity"
+  say "Installed $version_out to $install_dir/terminal-velocity"
   case ":$PATH:" in
     *":$install_dir:"*) ;;
     *) say "$install_dir is not on your PATH. Add this to your shell config:  export PATH=\"$install_dir:\$PATH\"" ;;

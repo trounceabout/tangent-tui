@@ -63,6 +63,7 @@ type Options = {
   arch?: string; // what `uname -m` says (default arm64)
   translated?: boolean; // a Rosetta shell: sysctl proc_translated is 1
   fakeCurl?: boolean; // don't download, just log the arguments curl was given
+  shims?: Record<string, string>; // extra stand-in commands: name -> shell script body
   env?: Record<string, string>;
   shell?: string;
   scriptText?: string; // feed this to the shell on stdin instead of running the file
@@ -84,6 +85,7 @@ async function runInstall(options: Options = {}) {
   await shim("uname", `case "$1" in -s) echo ${os} ;; -m) echo ${arch} ;; esac`);
   await shim("sysctl", translated ? "echo 1" : "echo 0");
   if (fakeCurl) await shim("curl", `echo "$@" >> "${curlLog}"\nexit 22`);
+  for (const [name, body] of Object.entries(options.shims ?? {})) await shim(name, body);
 
   const environment: Record<string, string> = {
     HOME: home,
@@ -267,6 +269,48 @@ describe.skipIf(!onMac)("install.sh", () => {
       expect((await run(r.installed)).out).toBe("terminal-velocity 0.0.1");
     });
 
+    // The checksum only shows the file arrived intact. Running it is the one check that macOS
+    // will really start it (a bad signature or the wrong build gets it killed).
+    test.each([
+      ["exits with an error", "#!/bin/sh\nexit 1\n"],
+      ["prints nothing", "#!/bin/sh\nexit 0\n"],
+    ])("a binary that %s is refused, even with a matching checksum", async (_label, body) => {
+      server = startServer({
+        [ARM]: body,
+        [X64]: body,
+        SHA256SUMS: `${sha256(body)}  ${ARM}\n${sha256(body)}  ${X64}\n`,
+      });
+      const r = await runInstall();
+      expect(r.code).not.toBe(0);
+      expect(r.stderr).toContain("does not run");
+      expect(r.stderr).not.toContain("Installed");
+      expect(await exists(r.installed)).toBe(false);
+      expect(await readdir(r.installDir)).toEqual([]); // and no staging file is left behind
+    });
+
+    test("a binary that doesn't run never replaces a working install", async () => {
+      const body = "#!/bin/sh\nexit 1\n";
+      server = startServer({ [ARM]: body, [X64]: body, SHA256SUMS: `${sha256(body)}  ${ARM}\n${sha256(body)}  ${X64}\n` });
+      const dir = join(work, "home", ".local", "bin");
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "terminal-velocity"), '#!/bin/sh\necho "terminal-velocity 0.0.1"\n');
+      await chmod(join(dir, "terminal-velocity"), 0o755);
+      const r = await runInstall();
+      expect(r.code).not.toBe(0);
+      expect((await run(r.installed)).out).toBe("terminal-velocity 0.0.1");
+      expect(await readdir(r.installDir)).toEqual(["terminal-velocity"]);
+    });
+
+    // If copying, chmod or the final rename fails, the half-installed hidden file must not stay
+    // in the person's install folder.
+    test.each([["chmod"], ["mv"]])("a failing %s leaves no staging file behind", async (command) => {
+      server = startServer(goodFiles());
+      const r = await runInstall({ shims: { [command]: "exit 1" } });
+      expect(r.code).not.toBe(0);
+      expect((await readdir(r.installDir)).filter((name) => name.startsWith(".terminal-velocity."))).toEqual([]);
+      expect(await exists(r.installed)).toBe(false);
+    });
+
     test("cleans up its temporary folder even when it fails", async () => {
       const files = goodFiles();
       files.SHA256SUMS = `${sha256("nope")}  ${ARM}\n`;
@@ -286,6 +330,9 @@ describe.skipIf(!onMac)("install.sh", () => {
         `https://github.com/trounceabout/terminal-velocity/releases/latest/download/${ARM}`,
       );
       expect(r.curlCalls).toContain("--proto =https");
+      // --proto only limits the first request. Redirects (GitHub's downloads redirect) are
+      // limited by --proto-redir, which by default also lets plain http through.
+      expect(r.curlCalls).toContain("--proto-redir =https");
     });
 
     test("a named release", async () => {
@@ -314,6 +361,7 @@ describe.skipIf(!onMac)("install.sh", () => {
     test("pointing BASE_URL at a test server allows http, and says so to curl", async () => {
       const r = await runInstall({ fakeCurl: true, env: { TERMINAL_VELOCITY_BASE_URL: "http://localhost:1/x" } });
       expect(r.curlCalls).toContain("--proto =http,https");
+      expect(r.curlCalls).toContain("--proto-redir =http,https");
       expect(r.curlCalls).toContain(`http://localhost:1/x/${ARM}`);
     });
   });
