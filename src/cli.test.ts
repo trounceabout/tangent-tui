@@ -73,7 +73,7 @@ describe("versionText", () => {
 describe("helpText", () => {
   test("lists both flags and both environment switches", () => {
     const text = helpText();
-    for (const word of ["--help", "--version", "TERMINAL_VELOCITY_DRY_RUN", "TERMINAL_VELOCITY_MOUSE"]) {
+    for (const word of ["--help", "--version", "TANGENT_DRY_RUN", "TANGENT_MOUSE"]) {
       expect(text).toContain(word);
     }
   });

@@ -26,7 +26,7 @@ let restoreFetch: (() => void) | undefined;
 afterEach(() => {
   restoreFetch?.();
   restoreFetch = undefined;
-  delete process.env.LINEAR_TUI_DRY_RUN;
+  delete process.env.TANGENT_DRY_RUN;
 });
 
 // A fake network that records every request, and fails the test if one is made
@@ -179,7 +179,7 @@ describe("updateIssue: nothing is sent when it shouldn't be", () => {
   });
 
   test("dry-run mode sends nothing, even for a valid change", async () => {
-    process.env.LINEAR_TUI_DRY_RUN = "1";
+    process.env.TANGENT_DRY_RUN = "1";
     const seen = recordRequests();
     expect(isDryRun()).toBe(true);
     expect(await updateIssue("k", "PD-1", { stateId: ID_A, priority: 2 })).toEqual({ dryRun: true });
@@ -187,14 +187,14 @@ describe("updateIssue: nothing is sent when it shouldn't be", () => {
   });
 
   test("dry-run mode still validates, so a bad change is caught in testing too", async () => {
-    process.env.LINEAR_TUI_DRY_RUN = "1";
+    process.env.TANGENT_DRY_RUN = "1";
     await expect(updateIssue("k", "PD-1", { priority: 9 })).rejects.toThrow("Priority");
   });
 
   test("dry-run is off by default and for any value other than exactly 1", () => {
     expect(isDryRun()).toBe(false);
     for (const value of ["0", "true", "yes", ""]) {
-      process.env.LINEAR_TUI_DRY_RUN = value;
+      process.env.TANGENT_DRY_RUN = value;
       expect(isDryRun()).toBe(false);
     }
   });

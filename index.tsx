@@ -10,7 +10,7 @@
 //
 // Mouse: a filter sits between the real keyboard and Ink. It pulls mouse reports out of
 // the input (Ink would drop them) and hands them to the app through MouseContext.
-// TERMINAL_VELOCITY_MOUSE=0 starts with the mouse off (the `m` key switches it back on).
+// TANGENT_MOUSE=0 starts with the mouse off (the `m` key switches it back on).
 // exitHooks makes sure the terminal's mouse mode is switched off however we exit.
 
 import pkg from "./package.json";
