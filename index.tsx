@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // index.tsx: the entry point. Starts the app full-screen.
 //
-// Command line: `terminal-velocity --help` and `--version` are handled FIRST, before the UI
+// Command line: `tangent --help` and `--version` are handled FIRST, before the UI
 // is even loaded (that's why ink and the app are imported with `await import` further down,
 // not at the top). The argument rules live in src/cli.ts.
 //
