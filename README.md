@@ -84,6 +84,8 @@ rm ~/.local/bin/tangent        # installed with the one command or by hand
 bun remove -g tangent-tui      # installed with Bun
 ```
 
+**Upgrading from Terminal Velocity?** The app used to have that name, so an older install is a separate program. Remove it too: `rm ~/.local/bin/terminal-velocity` and `bun remove -g terminal-velocity`.
+
 Your Linear key stays in the Keychain until you remove it. If you want it gone too:
 
 ```sh
@@ -196,7 +198,7 @@ To work on the code, run it from source:
 
 ```sh
 git clone https://github.com/trounceabout/terminal-velocity.git
-cd tangent
+cd terminal-velocity
 bun install
 bun run start       # run from source (needs a real terminal)
 bun link            # make `tangent` run from this folder; `bun unlink` undoes it

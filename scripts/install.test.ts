@@ -350,6 +350,13 @@ describe.skipIf(!onMac)("install.sh", () => {
       );
     });
 
+    test("a bad version set through the OLD name is refused, and the error names both settings", async () => {
+      const r = await runInstall({ fakeCurl: true, env: { TERMINAL_VELOCITY_VERSION: "main" } });
+      expect(r.code).not.toBe(0);
+      expect(r.stderr).toContain("TERMINAL_VELOCITY_VERSION");
+      expect(r.curlCalls).toBe("");
+    });
+
     test("the OLD setting names still work (version and base URL)", async () => {
       const version = await runInstall({ fakeCurl: true, env: { TERMINAL_VELOCITY_VERSION: "v0.1.0" } });
       expect(version.curlCalls).toContain("/releases/download/v0.1.0/");
@@ -368,7 +375,7 @@ describe.skipIf(!onMac)("install.sh", () => {
       async (version) => {
         const r = await runInstall({ fakeCurl: true, env: { TANGENT_VERSION: version } });
         expect(r.code).not.toBe(0);
-        expect(r.stderr).toContain("TANGENT_VERSION must");
+        expect(r.stderr).toContain("TANGENT_VERSION (or TERMINAL_VELOCITY_VERSION) must");
         expect(r.curlCalls).toBe("");
       },
     );

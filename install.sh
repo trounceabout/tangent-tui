@@ -49,11 +49,11 @@ main() {
     latest) release_path="latest/download" ;;
     v[0-9]*)
       case "$version" in
-        *[!0-9A-Za-z.-]*) die "TANGENT_VERSION must look like v1.2.3, not: $version" ;;
+        *[!0-9A-Za-z.-]*) die "TANGENT_VERSION (or TERMINAL_VELOCITY_VERSION) must look like v1.2.3, not: $version" ;;
       esac
       release_path="download/$version"
       ;;
-    *) die "TANGENT_VERSION must be 'latest' or look like v1.2.3, not: $version" ;;
+    *) die "TANGENT_VERSION (or TERMINAL_VELOCITY_VERSION) must be 'latest' or look like v1.2.3, not: $version" ;;
   esac
 
   # Downloads must be https, unless someone points BASE_URL somewhere on purpose.
