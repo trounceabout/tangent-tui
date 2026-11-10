@@ -28,8 +28,8 @@ describe("resolveTargets", () => {
 });
 
 describe("targets", () => {
-  test("release file names are terminal-velocity-<os>-<arch>", () => {
-    expect(TARGET_NAMES.map(binaryName)).toEqual(["terminal-velocity-darwin-arm64", "terminal-velocity-darwin-x64"]);
+  test("release file names are tangent-<os>-<arch>", () => {
+    expect(TARGET_NAMES.map(binaryName)).toEqual(["tangent-darwin-arm64", "tangent-darwin-x64"]);
   });
 
   // The install script picks the file by name. A baseline x64 binary runs on older Intel Macs
@@ -52,7 +52,7 @@ describe.skipIf(process.platform !== "darwin" || process.arch !== "arm64")("a co
     dir = await mkdtemp(join(tmpdir(), "tv-build-"));
     const written = await build(["darwin-arm64"], dir);
     file = written[0] ?? "";
-    expect(file).toBe(join(dir, "terminal-velocity-darwin-arm64"));
+    expect(file).toBe(join(dir, "tangent-darwin-arm64"));
 
     // macOS kills a binary whose signature is invalid, so check it explicitly.
     const sign = Bun.spawn(["codesign", "-v", file], { stdout: "ignore", stderr: "pipe" });
@@ -61,7 +61,7 @@ describe.skipIf(process.platform !== "darwin" || process.arch !== "arm64")("a co
     // --version, --help and errors exit before the UI loads, so this needs no terminal.
     const pkg = await Bun.file(join(import.meta.dir, "..", "package.json")).json();
     const version = Bun.spawn([file, "--version"], { stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-    expect((await new Response(version.stdout).text()).trim()).toBe(`terminal-velocity ${pkg.version}`);
+    expect((await new Response(version.stdout).text()).trim()).toBe(`tangent ${pkg.version}`);
     expect(await version.exited).toBe(0);
   }, 60_000);
 

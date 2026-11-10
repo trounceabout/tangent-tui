@@ -13,7 +13,7 @@ import { TARGET_NAMES, binaryName } from "./build.ts";
 const TAG = /^v(\d+\.\d+\.\d+)(-[0-9A-Za-z.-]+)?$/;
 
 // Returns an error message, or null when the tag is fine. The tag must look like a version AND
-// equal the version in package.json: otherwise `terminal-velocity --version` would disagree
+// equal the version in package.json: otherwise `tangent --version` would disagree
 // with the release it came from.
 export function checkTag(tag: string, packageVersion: string): string | null {
   if (!TAG.test(tag)) return `"${tag}" is not a release tag like v1.2.3 or v1.2.3-rc.1`;

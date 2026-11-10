@@ -72,7 +72,7 @@ jobs:
 
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: dist/terminal-velocity-darwin-*
+          subject-path: dist/tangent-darwin-*
 
       - name: Publish the release
         run: |
@@ -81,7 +81,7 @@ jobs:
             flags+=(--prerelease)
           fi
           gh release create "$TAG" \
-            dist/terminal-velocity-darwin-arm64 \
-            dist/terminal-velocity-darwin-x64 \
+            dist/tangent-darwin-arm64 \
+            dist/tangent-darwin-x64 \
             dist/SHA256SUMS \
             --verify-tag --title "$TAG" --generate-notes ${flags[@]+"${flags[@]}"}
