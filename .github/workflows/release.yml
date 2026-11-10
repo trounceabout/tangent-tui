@@ -14,7 +14,7 @@
 #
 # A tag with a pre-release part (v0.2.0-rc.1) is published as a pre-release. GitHub's
 # "latest release" skips pre-releases, so install an rc by naming it:
-#     curl -fsSL .../install.sh | TERMINAL_VELOCITY_VERSION=v0.2.0-rc.1 sh
+#     curl -fsSL .../install.sh | TANGENT_VERSION=v0.2.0-rc.1 sh
 #
 # Anyone who can push a tag can publish a release, so this workflow refuses tags whose commit
 # isn't on main, and tags that don't match the version in package.json.
@@ -84,8 +84,8 @@ jobs:
       # Rosetta, so the x64 binary is NOT tested here.
       - name: Smoke-test the arm64 binary
         run: |
-          out="$(dist/terminal-velocity-darwin-arm64 --version)"
-          [ "$out" = "terminal-velocity ${TAG#v}" ] || { echo "unexpected output: $out"; exit 1; }
+          out="$(dist/tangent-darwin-arm64 --version)"
+          [ "$out" = "tangent ${TAG#v}" ] || { echo "unexpected output: $out"; exit 1; }
 
       - name: Write SHA256SUMS and check it
         working-directory: dist

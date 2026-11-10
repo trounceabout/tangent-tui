@@ -230,7 +230,7 @@ describe("release workflow", () => {
 
   test("the smoke test compares the output with the tag's version and fails the job if it differs", () => {
     const smoke = steps().find((s) => s.run?.includes("--version"));
-    expect(smoke?.run).toContain("terminal-velocity ${TAG#v}"); // from env, never ${{ }}
+    expect(smoke?.run).toContain("tangent ${TAG#v}"); // from env, never ${{ }}
     expect(smoke?.run).toContain("exit 1");
   });
 

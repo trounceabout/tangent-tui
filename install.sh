@@ -1,13 +1,16 @@
 #!/bin/sh
-# Installs Terminal Velocity: downloads the release binary for this Mac, checks its checksum,
-# and puts it in ~/.local/bin as `terminal-velocity`.
+# Installs Tangent: downloads the release binary for this Mac, checks its checksum,
+# and puts it in ~/.local/bin as `tangent`.
 #
 #   curl -fsSL https://raw.githubusercontent.com/trounceabout/terminal-velocity/main/install.sh | sh
 #
 # Optional settings (environment variables):
-#   TERMINAL_VELOCITY_VERSION      a release tag such as v0.1.0 (default: the latest release)
-#   TERMINAL_VELOCITY_INSTALL_DIR  where to put the command (default: ~/.local/bin)
-#   TERMINAL_VELOCITY_BASE_URL     download from here instead of GitHub (for tests and mirrors)
+#   TANGENT_VERSION      a release tag such as v0.1.0 (default: the latest release)
+#   TANGENT_INSTALL_DIR  where to put the command (default: ~/.local/bin)
+#   TANGENT_BASE_URL     download from here instead of GitHub (for tests and mirrors)
+#
+# The app used to be called Terminal Velocity, so the old TERMINAL_VELOCITY_VERSION,
+# TERMINAL_VELOCITY_INSTALL_DIR and TERMINAL_VELOCITY_BASE_URL names still work too.
 #
 # What it does NOT do: use sudo, touch your shell config, or change anything outside the
 # install directory and a temporary folder it deletes afterwards.
@@ -27,7 +30,7 @@ die() { say "error: $*"; exit 1; }
 # download is cut off halfway, the shell hits a syntax error while reading the function and
 # runs nothing at all. (Without this, a partial script would run its first half.)
 main() {
-  [ "$(uname -s)" = "Darwin" ] || die "Terminal Velocity only runs on macOS for now (Linux support is tracked in issue #7). This system is: $(uname -s)"
+  [ "$(uname -s)" = "Darwin" ] || die "Tangent only runs on macOS for now (Linux support is tracked in issue #7). This system is: $(uname -s)"
 
   # Which build? A shell running under Rosetta reports x86_64 even on an Apple Silicon Mac,
   # so ask macOS whether we are being translated.
@@ -38,33 +41,34 @@ main() {
     x86_64) target="darwin-x64" ;;
     *) die "unsupported processor: $arch" ;;
   esac
-  name="terminal-velocity-$target"
+  name="tangent-$target"
 
   # Which release? The version ends up in a URL, so only accept a plain tag.
-  version="${TERMINAL_VELOCITY_VERSION:-latest}"
+  version="${TANGENT_VERSION:-${TERMINAL_VELOCITY_VERSION:-latest}}"
   case "$version" in
     latest) release_path="latest/download" ;;
     v[0-9]*)
       case "$version" in
-        *[!0-9A-Za-z.-]*) die "TERMINAL_VELOCITY_VERSION must look like v1.2.3, not: $version" ;;
+        *[!0-9A-Za-z.-]*) die "TANGENT_VERSION must look like v1.2.3, not: $version" ;;
       esac
       release_path="download/$version"
       ;;
-    *) die "TERMINAL_VELOCITY_VERSION must be 'latest' or look like v1.2.3, not: $version" ;;
+    *) die "TANGENT_VERSION must be 'latest' or look like v1.2.3, not: $version" ;;
   esac
 
   # Downloads must be https, unless someone points BASE_URL somewhere on purpose.
-  if [ -n "${TERMINAL_VELOCITY_BASE_URL:-}" ]; then
-    base_url="$TERMINAL_VELOCITY_BASE_URL"
+  custom_base="${TANGENT_BASE_URL:-${TERMINAL_VELOCITY_BASE_URL:-}}"
+  if [ -n "$custom_base" ]; then
+    base_url="$custom_base"
     protocols="=http,https"
   else
     base_url="https://github.com/$REPO/releases/$release_path"
     protocols="=https"
   fi
-  install_dir="${TERMINAL_VELOCITY_INSTALL_DIR:-$HOME/.local/bin}"
+  install_dir="${TANGENT_INSTALL_DIR:-${TERMINAL_VELOCITY_INSTALL_DIR:-$HOME/.local/bin}}"
 
   # An explicit template, because macOS's bare `mktemp -d` ignores TMPDIR.
-  tmp="$(mktemp -d "${TMPDIR:-/tmp}/terminal-velocity.XXXXXX")"
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/tangent.XXXXXX")"
   # `staged` is the half-installed file in the install folder (set below). It must exist
   # before the trap does, and the trap removes it too, so a failure can't leave it behind.
   staged=""
@@ -91,15 +95,15 @@ main() {
   # This is its own statement on purpose: a failing $(...) inside another command's arguments
   # does not stop `set -e`.
   mkdir -p "$install_dir"
-  staged="$install_dir/.terminal-velocity.$$"
+  staged="$install_dir/.tangent.$$"
   cp "$tmp/$name" "$staged"
   chmod 755 "$staged"
   version_out="$("$staged" --version)" || version_out=""
   [ -n "$version_out" ] || die "the downloaded binary does not run on this Mac. Nothing was installed."
-  mv -f "$staged" "$install_dir/terminal-velocity"
+  mv -f "$staged" "$install_dir/tangent"
   staged=""
 
-  say "Installed $version_out to $install_dir/terminal-velocity"
+  say "Installed $version_out to $install_dir/tangent"
   case ":$PATH:" in
     *":$install_dir:"*) ;;
     *) say "$install_dir is not on your PATH. Add this to your shell config:  export PATH=\"$install_dir:\$PATH\"" ;;
