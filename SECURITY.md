@@ -1,6 +1,6 @@
 # Security
 
-Terminal Velocity talks to Linear with **your personal API key** and can **change issues** (status, priority, estimate), so please treat security reports seriously.
+Tangent talks to Linear with **your personal API key** and can **change issues** (status, priority, estimate), so please treat security reports seriously.
 
 ## How your key is handled
 
@@ -15,6 +15,6 @@ Report it privately with GitHub's "Report a vulnerability" button on the reposit
 
 ## Staying safe while using it
 
-- Try the screens first with `TERMINAL_VELOCITY_DRY_RUN=1`. It sends nothing at all.
+- Try the screens first with `TANGENT_DRY_RUN=1`. It sends nothing at all.
 - Changes are only sent when you press Enter on the confirm screen, never by a click.
 - Use a Linear API key with the narrowest access that works for you, and revoke it in Linear (Settings, API) if you ever think it leaked.
