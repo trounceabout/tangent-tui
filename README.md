@@ -1,4 +1,4 @@
-# Terminal Velocity
+# Tangent
 
 A full-screen terminal app (in the spirit of lazygit) that shows **your Linear issues from every currently active cycle**, grouped by status and sorted by priority.
 
@@ -7,9 +7,9 @@ A full-screen terminal app (in the spirit of lazygit) that shows **your Linear i
 - Priority icons, T-shirt (or point) estimates, labels, due dates
 - Keyboard-driven, auto-refreshes every 60 seconds
 
-> **Unofficial.** Terminal Velocity is an independent project. It is not made by, affiliated with or endorsed by Linear. "Linear" is a trademark of its owner.
+> **Unofficial.** Tangent is an independent project. It is not made by, affiliated with or endorsed by Linear. "Linear" is a trademark of its owner.
 >
-> **It can change your issues.** You can change an issue's status, priority and estimate from inside the app, using your own Linear API key. Nothing is sent until you confirm, and `TERMINAL_VELOCITY_DRY_RUN=1` lets you try every screen without sending anything. See [SECURITY.md](SECURITY.md).
+> **It can change your issues.** You can change an issue's status, priority and estimate from inside the app, using your own Linear API key. Nothing is sent until you confirm, and `TANGENT_DRY_RUN=1` lets you try every screen without sending anything. See [SECURITY.md](SECURITY.md).
 
 Built with [Bun](https://bun.sh), TypeScript and [Ink](https://github.com/vadimdemedes/ink) (React for the terminal).
 
@@ -39,9 +39,9 @@ Or install it as a command, so you can run it from any folder:
 
 ```sh
 bun link            # once, from inside the repo
-terminal-velocity   # start the app
-terminal-velocity --help      # usage and environment switches
-terminal-velocity --version
+tangent   # start the app
+tangent --help      # usage and environment switches
+tangent --version
 ```
 
 ## Keys
@@ -91,7 +91,7 @@ After a change you stay on the screen you were on, and it shows Linear's new val
 - If Linear refuses (for example your API key is read-only), the error is shown, nothing changes, and `Enter` retries.
 - After a change the board reloads from Linear, so it shows what Linear really has.
 
-**Try it safely:** start the app with `TERMINAL_VELOCITY_DRY_RUN=1 bun run start`. Every screen works and the footer shows `DRY RUN`, but nothing is ever sent. (The app used to be called linear-tui, so the old `LINEAR_TUI_DRY_RUN` and `LINEAR_TUI_MOUSE` names still work too.)
+**Try it safely:** start the app with `TANGENT_DRY_RUN=1 bun run start`. Every screen works and the footer shows `DRY RUN`, but nothing is ever sent. (The app used to be called Terminal Velocity and, before that, linear-tui, so the old `TERMINAL_VELOCITY_*` and `LINEAR_TUI_*` names still work too.)
 
 Your API key needs **write** permission for changes to succeed; reading the board only needs read access.
 
@@ -120,7 +120,7 @@ The mouse works alongside the keys.
 | Edit panel: click an option | Go to the confirm screen (a click never saves; only `Enter` on the confirm screen does) |
 | `m` | Mouse on / off |
 
-**Text selection:** while the mouse is on, the terminal sends clicks to the app instead of selecting text. Press `m` to switch it off and select or copy as usual (the status line shows `mouse off`), or start with `TERMINAL_VELOCITY_MOUSE=0`. It is always switched off when the app quits.
+**Text selection:** while the mouse is on, the terminal sends clicks to the app instead of selecting text. Press `m` to switch it off and select or copy as usual (the status line shows `mouse off`), or start with `TANGENT_MOUSE=0`. It is always switched off when the app quits.
 
 ## Development
 
