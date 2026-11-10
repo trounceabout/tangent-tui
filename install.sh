@@ -2,7 +2,7 @@
 # Installs Tangent: downloads the release binary for this Mac, checks its checksum,
 # and puts it in ~/.local/bin as `tangent`.
 #
-#   curl -fsSL https://raw.githubusercontent.com/trounceabout/terminal-velocity/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/trounceabout/tangent-tui/main/install.sh | sh
 #
 # Optional settings (environment variables):
 #   TANGENT_VERSION      a release tag such as v0.1.0 (default: the latest release)
@@ -21,7 +21,7 @@
 
 set -eu
 
-REPO="trounceabout/terminal-velocity"
+REPO="trounceabout/tangent-tui"
 
 say() { printf '%s\n' "$*" >&2; }
 die() { say "error: $*"; exit 1; }

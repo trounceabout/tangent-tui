@@ -335,7 +335,7 @@ describe.skipIf(!onMac)("install.sh", () => {
       const r = await runInstall({ fakeCurl: true });
       expect(r.code).not.toBe(0);
       expect(r.curlCalls).toContain(
-        `https://github.com/trounceabout/terminal-velocity/releases/latest/download/${ARM}`,
+        `https://github.com/trounceabout/tangent-tui/releases/latest/download/${ARM}`,
       );
       expect(r.curlCalls).toContain("--proto =https");
       // --proto only limits the first request. Redirects (GitHub's downloads redirect) are
@@ -346,7 +346,7 @@ describe.skipIf(!onMac)("install.sh", () => {
     test("a named release", async () => {
       const r = await runInstall({ fakeCurl: true, env: { TANGENT_VERSION: "v0.1.0" } });
       expect(r.curlCalls).toContain(
-        `https://github.com/trounceabout/terminal-velocity/releases/download/v0.1.0/${ARM}`,
+        `https://github.com/trounceabout/tangent-tui/releases/download/v0.1.0/${ARM}`,
       );
     });
 
@@ -465,7 +465,7 @@ describe("README install section", () => {
     const command = /curl -fsSL (https:\/\/raw\.githubusercontent\.com\/\S+\/install\.sh)/;
     const fromScript = command.exec(await script())?.[1];
     const fromReadme = command.exec(await readme())?.[1];
-    expect(fromScript).toBe("https://raw.githubusercontent.com/trounceabout/terminal-velocity/main/install.sh");
+    expect(fromScript).toBe("https://raw.githubusercontent.com/trounceabout/tangent-tui/main/install.sh");
     expect(fromReadme).toBe(fromScript);
   });
 
