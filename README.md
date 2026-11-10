@@ -20,7 +20,7 @@ Tangent runs on **macOS** (Apple Silicon or Intel). It reads your Linear key fro
 ### One command
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/trounceabout/terminal-velocity/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/trounceabout/tangent-tui/main/install.sh | sh
 ```
 
 This downloads the latest release for your Mac, checks it against the release's checksum, and installs a `tangent` command into `~/.local/bin`. It doesn't use `sudo`, doesn't need Bun, and doesn't touch your shell config. If it says `~/.local/bin` is not on your `PATH`, add the line it prints to `~/.zshrc`.
@@ -30,7 +30,7 @@ The script is short ([install.sh](install.sh)), so read it before you run it if 
 To pick a version or a folder, set these on the `sh` side of the pipe:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/trounceabout/terminal-velocity/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/trounceabout/tangent-tui/main/install.sh \
   | TANGENT_VERSION=v0.1.0 TANGENT_INSTALL_DIR=~/bin sh
 ```
 
@@ -39,15 +39,15 @@ curl -fsSL https://raw.githubusercontent.com/trounceabout/terminal-velocity/main
 If you already have [Bun](https://bun.sh) 1.2 or newer:
 
 ```sh
-bunx github:trounceabout/terminal-velocity            # run it once, nothing installed
-bun install -g github:trounceabout/terminal-velocity  # install the command
+bunx github:trounceabout/tangent-tui            # run it once, nothing installed
+bun install -g github:trounceabout/tangent-tui  # install the command
 ```
 
 This runs straight from the source on GitHub. (It isn't published to npm yet.)
 
 ### Download by hand
 
-Every release on the [Releases page](https://github.com/trounceabout/terminal-velocity/releases) has a binary for each Mac (`tangent-darwin-arm64` for Apple Silicon, `tangent-darwin-x64` for Intel) and a `SHA256SUMS` file.
+Every release on the [Releases page](https://github.com/trounceabout/tangent-tui/releases) has a binary for each Mac (`tangent-darwin-arm64` for Apple Silicon, `tangent-darwin-x64` for Intel) and a `SHA256SUMS` file.
 
 macOS **refuses to run a binary you download in a browser** (it is killed straight away) because these binaries are not notarized by Apple. Clear the quarantine mark, then make it executable and put it on your `PATH`:
 
@@ -70,12 +70,12 @@ shasum -a 256 -c --ignore-missing SHA256SUMS
 A checksum shows the file arrived intact. It doesn't prove the release is genuine, because the checksum file is published next to the binary. For that, each release carries a signed **build-provenance attestation**: proof that GitHub Actions built this exact file from this repository. With the [GitHub CLI](https://cli.github.com/):
 
 ```sh
-gh attestation verify tangent-darwin-arm64 --repo trounceabout/terminal-velocity
+gh attestation verify tangent-darwin-arm64 --repo trounceabout/tangent-tui
 ```
 
 ### Update
 
-Run the same install command again. It replaces the old version, and your Keychain key is untouched. (With Bun: `bun remove -g tangent-tui`, then `bun install -g github:trounceabout/terminal-velocity` again.)
+Run the same install command again. It replaces the old version, and your Keychain key is untouched. (With Bun: `bun remove -g tangent-tui`, then `bun install -g github:trounceabout/tangent-tui` again.)
 
 ### Uninstall
 
@@ -197,8 +197,8 @@ The mouse works alongside the keys.
 To work on the code, run it from source:
 
 ```sh
-git clone https://github.com/trounceabout/terminal-velocity.git
-cd terminal-velocity
+git clone https://github.com/trounceabout/tangent-tui.git
+cd tangent-tui
 bun install
 bun run start       # run from source (needs a real terminal)
 bun link            # make `tangent` run from this folder; `bun unlink` undoes it
