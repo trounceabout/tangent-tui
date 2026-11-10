@@ -1,5 +1,5 @@
 // src/cli.ts
-// Command-line arguments: `terminal-velocity --help` and `--version`.
+// Command-line arguments: `tangent --help` and `--version`.
 // Pure functions only (no printing, no exiting), so they are easy to test.
 // index.tsx calls these first and decides what to print and when to quit.
 
@@ -7,8 +7,8 @@
 //
 // Normally that's argv.slice(2). But in a compiled binary (Bun 1.2.21), running it with NO
 // arguments puts the binary's own path in as a fake first argument: argv is
-// ["bun", "/$bunfs/root/terminal-velocity", "./terminal-velocity"]. Left alone, plain
-// `terminal-velocity` would fail with "Unknown option: ./terminal-velocity". The fake one is
+// ["bun", "/$bunfs/root/tangent", "./tangent"]. Left alone, plain
+// `tangent` would fail with "Unknown option: ./tangent". The fake one is
 // always exactly argv0, and only shows up when there is nothing else, so we drop it then.
 // Compiled binaries are recognised by their script living under /$bunfs/.
 export function userArgs(argv: string[], argv0: string): string[] {
@@ -25,7 +25,7 @@ export type CliAction =
   | { action: "error"; message: string };
 
 // Looks at the arguments (process.argv.slice(2)) and says what to do.
-// Help and version win over everything else, so `terminal-velocity --bogus --help`
+// Help and version win over everything else, so `tangent --bogus --help`
 // shows the help instead of complaining. Any other argument is an error: a typo like
 // `--versoin` must not silently open the full-screen app.
 export function parseArgs(args: string[]): CliAction {
@@ -39,24 +39,24 @@ export function parseArgs(args: string[]): CliAction {
   return { action: "run" };
 }
 
-// `terminal-velocity 0.1.0`
-export const versionText = (version: string): string => `terminal-velocity ${version}`;
+// `tangent 0.1.0`
+export const versionText = (version: string): string => `tangent ${version}`;
 
 // Kept under 80 columns per line, so it reads well in a narrow pane.
 export const helpText = (): string =>
   [
-    "terminal-velocity: your Linear issues from every active cycle, in the terminal.",
+    "tangent: your Linear issues from every active cycle, in the terminal.",
     "",
     "Usage:",
-    "  terminal-velocity [options]",
+    "  tangent [options]",
     "",
     "Options:",
     "  -h, --help      Show this help and exit",
     "  -v, --version   Show the version and exit",
     "",
     "Environment:",
-    "  TERMINAL_VELOCITY_DRY_RUN=1   Try every screen; nothing is sent to Linear",
-    "  TERMINAL_VELOCITY_MOUSE=0     Start with the mouse off (press m to toggle)",
+    "  TANGENT_DRY_RUN=1   Try every screen; nothing is sent to Linear",
+    "  TANGENT_MOUSE=0     Start with the mouse off (press m to toggle)",
     "",
     "Inside the app, press ? to see every key.",
   ].join("\n");

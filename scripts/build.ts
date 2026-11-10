@@ -23,9 +23,9 @@ export const TARGETS = {
 export type TargetName = keyof typeof TARGETS;
 export const TARGET_NAMES = Object.keys(TARGETS) as TargetName[];
 
-// The file name a release uses for a target, e.g. terminal-velocity-darwin-arm64.
+// The file name a release uses for a target, e.g. tangent-darwin-arm64.
 // The install script builds the same name, so change both together.
-export const binaryName = (target: TargetName): string => `terminal-velocity-${target}`;
+export const binaryName = (target: TargetName): string => `tangent-${target}`;
 
 // Turns command-line words into a list of targets. No words means all of them.
 // An unknown word throws, so a typo can't quietly build nothing.

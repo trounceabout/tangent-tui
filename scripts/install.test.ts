@@ -17,9 +17,9 @@ const onMac = process.platform === "darwin";
 const sha256 = (text: string): string => new Bun.CryptoHasher("sha256").update(text).digest("hex");
 
 // A stand-in for the real binary: a script that reports a version, like the real one does.
-const fakeBinary = (label: string): string => `#!/bin/sh\necho "terminal-velocity 9.9.9"\n# ${label}\n`;
-const ARM = "terminal-velocity-darwin-arm64";
-const X64 = "terminal-velocity-darwin-x64";
+const fakeBinary = (label: string): string => `#!/bin/sh\necho "tangent 9.9.9"\n# ${label}\n`;
+const ARM = "tangent-darwin-arm64";
+const X64 = "tangent-darwin-x64";
 
 type Server = { url: string; requests: string[]; stop: () => void };
 
@@ -91,7 +91,7 @@ async function runInstall(options: Options = {}) {
     HOME: home,
     TMPDIR: tmpDir,
     PATH: `${shims}:/usr/bin:/bin:/usr/sbin:/sbin`,
-    ...(server && options.withServer !== false ? { TERMINAL_VELOCITY_BASE_URL: server.url } : {}),
+    ...(server && options.withServer !== false ? { TANGENT_BASE_URL: server.url } : {}),
     ...env,
   };
   const proc = Bun.spawn(options.scriptText === undefined ? [shell, scriptPath] : [shell], {
@@ -105,9 +105,9 @@ async function runInstall(options: Options = {}) {
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
-  const installDir = environment.TERMINAL_VELOCITY_INSTALL_DIR ?? join(home, ".local", "bin");
+  const installDir = environment.TANGENT_INSTALL_DIR ?? join(home, ".local", "bin");
   const curlCalls = (await Bun.file(curlLog).exists()) ? await Bun.file(curlLog).text() : "";
-  return { stdout, stderr, code, home, tmpDir, installed: join(installDir, "terminal-velocity"), installDir, curlCalls };
+  return { stdout, stderr, code, home, tmpDir, installed: join(installDir, "tangent"), installDir, curlCalls };
 }
 
 const exists = (path: string) => Bun.file(path).exists();
@@ -122,8 +122,8 @@ describe.skipIf(!onMac)("install.sh", () => {
       server = startServer(goodFiles());
       const r = await runInstall();
       expect(r.code).toBe(0);
-      expect(r.stderr).toContain("Installed terminal-velocity 9.9.9");
-      expect(await run(r.installed)).toEqual({ out: "terminal-velocity 9.9.9", code: 0 });
+      expect(r.stderr).toContain("Installed tangent 9.9.9");
+      expect(await run(r.installed)).toEqual({ out: "tangent 9.9.9", code: 0 });
     });
 
     test("downloads the binary for this Mac and the checksum list", async () => {
@@ -140,30 +140,38 @@ describe.skipIf(!onMac)("install.sh", () => {
       expect(await exists(r.installed)).toBe(true);
     });
 
-    test("puts the command in TERMINAL_VELOCITY_INSTALL_DIR when asked", async () => {
+    test("puts the command in TANGENT_INSTALL_DIR when asked", async () => {
       server = startServer(goodFiles());
       const dir = join(work, "elsewhere", "bin");
+      const r = await runInstall({ env: { TANGENT_INSTALL_DIR: dir } });
+      expect(r.code).toBe(0);
+      expect(r.installed).toBe(join(dir, "tangent"));
+      expect(await exists(r.installed)).toBe(true);
+    });
+
+    test("the OLD setting name TERMINAL_VELOCITY_INSTALL_DIR still works", async () => {
+      server = startServer(goodFiles());
+      const dir = join(work, "legacy", "bin");
       const r = await runInstall({ env: { TERMINAL_VELOCITY_INSTALL_DIR: dir } });
       expect(r.code).toBe(0);
-      expect(r.installed).toBe(join(dir, "terminal-velocity"));
-      expect(await exists(r.installed)).toBe(true);
+      expect(await exists(join(dir, "tangent"))).toBe(true);
     });
 
     test("replaces an older install", async () => {
       server = startServer(goodFiles());
       const dir = join(work, "home", ".local", "bin");
       await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, "terminal-velocity"), "#!/bin/sh\necho old\n");
-      await chmod(join(dir, "terminal-velocity"), 0o755);
+      await writeFile(join(dir, "tangent"), "#!/bin/sh\necho old\n");
+      await chmod(join(dir, "tangent"), 0o755);
       const r = await runInstall();
       expect(r.code).toBe(0);
-      expect((await run(r.installed)).out).toBe("terminal-velocity 9.9.9");
+      expect((await run(r.installed)).out).toBe("tangent 9.9.9");
     });
 
     test("leaves no staging file behind in the install folder", async () => {
       server = startServer(goodFiles());
       const r = await runInstall();
-      expect(await readdir(r.installDir)).toEqual(["terminal-velocity"]);
+      expect(await readdir(r.installDir)).toEqual(["tangent"]);
     });
 
     test("cleans up its temporary folder", async () => {
@@ -184,7 +192,7 @@ describe.skipIf(!onMac)("install.sh", () => {
       const r = await runInstall({ arch, translated });
       expect(r.code).toBe(0);
       expect(server.requests).toContain(`/release/${expected}`);
-      expect(server.requests.filter((p) => p.includes("terminal-velocity-"))).toHaveLength(1);
+      expect(server.requests.filter((p) => p.includes("tangent-"))).toHaveLength(1);
     });
 
     test("an unsupported processor is refused before any download", async () => {
@@ -262,11 +270,11 @@ describe.skipIf(!onMac)("install.sh", () => {
       server = startServer(files);
       const dir = join(work, "home", ".local", "bin");
       await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, "terminal-velocity"), '#!/bin/sh\necho "terminal-velocity 0.0.1"\n');
-      await chmod(join(dir, "terminal-velocity"), 0o755);
+      await writeFile(join(dir, "tangent"), '#!/bin/sh\necho "tangent 0.0.1"\n');
+      await chmod(join(dir, "tangent"), 0o755);
       const r = await runInstall();
       expect(r.code).not.toBe(0);
-      expect((await run(r.installed)).out).toBe("terminal-velocity 0.0.1");
+      expect((await run(r.installed)).out).toBe("tangent 0.0.1");
     });
 
     // The checksum only shows the file arrived intact. Running it is the one check that macOS
@@ -293,12 +301,12 @@ describe.skipIf(!onMac)("install.sh", () => {
       server = startServer({ [ARM]: body, [X64]: body, SHA256SUMS: `${sha256(body)}  ${ARM}\n${sha256(body)}  ${X64}\n` });
       const dir = join(work, "home", ".local", "bin");
       await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, "terminal-velocity"), '#!/bin/sh\necho "terminal-velocity 0.0.1"\n');
-      await chmod(join(dir, "terminal-velocity"), 0o755);
+      await writeFile(join(dir, "tangent"), '#!/bin/sh\necho "tangent 0.0.1"\n');
+      await chmod(join(dir, "tangent"), 0o755);
       const r = await runInstall();
       expect(r.code).not.toBe(0);
-      expect((await run(r.installed)).out).toBe("terminal-velocity 0.0.1");
-      expect(await readdir(r.installDir)).toEqual(["terminal-velocity"]);
+      expect((await run(r.installed)).out).toBe("tangent 0.0.1");
+      expect(await readdir(r.installDir)).toEqual(["tangent"]);
     });
 
     // If copying, chmod or the final rename fails, the half-installed hidden file must not stay
@@ -307,7 +315,7 @@ describe.skipIf(!onMac)("install.sh", () => {
       server = startServer(goodFiles());
       const r = await runInstall({ shims: { [command]: "exit 1" } });
       expect(r.code).not.toBe(0);
-      expect((await readdir(r.installDir)).filter((name) => name.startsWith(".terminal-velocity."))).toEqual([]);
+      expect((await readdir(r.installDir)).filter((name) => name.startsWith(".tangent."))).toEqual([]);
       expect(await exists(r.installed)).toBe(false);
     });
 
@@ -336,14 +344,28 @@ describe.skipIf(!onMac)("install.sh", () => {
     });
 
     test("a named release", async () => {
-      const r = await runInstall({ fakeCurl: true, env: { TERMINAL_VELOCITY_VERSION: "v0.1.0" } });
+      const r = await runInstall({ fakeCurl: true, env: { TANGENT_VERSION: "v0.1.0" } });
       expect(r.curlCalls).toContain(
         `https://github.com/trounceabout/terminal-velocity/releases/download/v0.1.0/${ARM}`,
       );
     });
 
+    test("a bad version set through the OLD name is refused, and the error names both settings", async () => {
+      const r = await runInstall({ fakeCurl: true, env: { TERMINAL_VELOCITY_VERSION: "main" } });
+      expect(r.code).not.toBe(0);
+      expect(r.stderr).toContain("TERMINAL_VELOCITY_VERSION");
+      expect(r.curlCalls).toBe("");
+    });
+
+    test("the OLD setting names still work (version and base URL)", async () => {
+      const version = await runInstall({ fakeCurl: true, env: { TERMINAL_VELOCITY_VERSION: "v0.1.0" } });
+      expect(version.curlCalls).toContain("/releases/download/v0.1.0/");
+      const base = await runInstall({ fakeCurl: true, env: { TERMINAL_VELOCITY_BASE_URL: "http://localhost:1/x" } });
+      expect(base.curlCalls).toContain(`http://localhost:1/x/${ARM}`);
+    });
+
     test("a pre-release tag is accepted", async () => {
-      const r = await runInstall({ fakeCurl: true, env: { TERMINAL_VELOCITY_VERSION: "v0.2.0-rc.1" } });
+      const r = await runInstall({ fakeCurl: true, env: { TANGENT_VERSION: "v0.2.0-rc.1" } });
       expect(r.curlCalls).toContain("/releases/download/v0.2.0-rc.1/");
     });
 
@@ -351,15 +373,15 @@ describe.skipIf(!onMac)("install.sh", () => {
     test.each([["1.0.0"], ["main"], ["v1.0.0/../../x"], ["v1.0.0?x=1"], ["v1.0.0;ls"], ["v1 0"], ["../v1.0.0"]])(
       "refuses the version %p without downloading anything",
       async (version) => {
-        const r = await runInstall({ fakeCurl: true, env: { TERMINAL_VELOCITY_VERSION: version } });
+        const r = await runInstall({ fakeCurl: true, env: { TANGENT_VERSION: version } });
         expect(r.code).not.toBe(0);
-        expect(r.stderr).toContain("TERMINAL_VELOCITY_VERSION must");
+        expect(r.stderr).toContain("TANGENT_VERSION (or TERMINAL_VELOCITY_VERSION) must");
         expect(r.curlCalls).toBe("");
       },
     );
 
     test("pointing BASE_URL at a test server allows http, and says so to curl", async () => {
-      const r = await runInstall({ fakeCurl: true, env: { TERMINAL_VELOCITY_BASE_URL: "http://localhost:1/x" } });
+      const r = await runInstall({ fakeCurl: true, env: { TANGENT_BASE_URL: "http://localhost:1/x" } });
       expect(r.curlCalls).toContain("--proto =http,https");
       expect(r.curlCalls).toContain("--proto-redir =http,https");
       expect(r.curlCalls).toContain(`http://localhost:1/x/${ARM}`);
@@ -447,11 +469,11 @@ describe("README install section", () => {
     expect(fromReadme).toBe(fromScript);
   });
 
-  test("every TERMINAL_VELOCITY_* install setting the README names is real", async () => {
+  test("every TANGENT_* install setting the README names is real", async () => {
     const section = ((await readme()).split("## Install")[1] ?? "").split("## Requirements")[0] ?? "";
     expect(section.length).toBeGreaterThan(500); // really found the Install section
-    const named = new Set(section.match(/TERMINAL_VELOCITY_[A-Z_]+/g) ?? []);
-    expect([...named].sort()).toEqual(["TERMINAL_VELOCITY_INSTALL_DIR", "TERMINAL_VELOCITY_VERSION"]);
+    const named = new Set(section.match(/TANGENT_[A-Z_]+/g) ?? []);
+    expect([...named].sort()).toEqual(["TANGENT_INSTALL_DIR", "TANGENT_VERSION"]);
     const code = await script();
     for (const name of named) expect(code).toContain(`${name}:-`);
   });

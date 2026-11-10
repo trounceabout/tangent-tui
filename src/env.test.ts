@@ -3,7 +3,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { dryRunRequested, mouseStartsOff } from "./env.ts";
 
-const NAMES = ["TERMINAL_VELOCITY_DRY_RUN", "LINEAR_TUI_DRY_RUN", "TERMINAL_VELOCITY_MOUSE", "LINEAR_TUI_MOUSE"];
+const NAMES = [
+  "TANGENT_DRY_RUN",
+  "TERMINAL_VELOCITY_DRY_RUN",
+  "LINEAR_TUI_DRY_RUN",
+  "TANGENT_MOUSE",
+  "TERMINAL_VELOCITY_MOUSE",
+  "LINEAR_TUI_MOUSE",
+];
 afterEach(() => NAMES.forEach((name) => delete process.env[name]));
 
 describe("dryRunRequested", () => {
@@ -12,16 +19,20 @@ describe("dryRunRequested", () => {
   });
 
   test("the new name turns it on", () => {
-    process.env.TERMINAL_VELOCITY_DRY_RUN = "1";
+    process.env.TANGENT_DRY_RUN = "1";
     expect(dryRunRequested()).toBe(true);
   });
 
-  test("the OLD name still turns it on, so an old habit can't send a real write", () => {
-    process.env.LINEAR_TUI_DRY_RUN = "1";
-    expect(dryRunRequested()).toBe(true);
-  });
+  test.each(["TERMINAL_VELOCITY_DRY_RUN", "LINEAR_TUI_DRY_RUN"])(
+    "the OLD name %s still turns it on, so an old habit can't send a real write",
+    (name) => {
+      process.env[name] = "1";
+      expect(dryRunRequested()).toBe(true);
+    },
+  );
 
-  test("either name on is enough, even if the other says something else", () => {
+  test("any name on is enough, even if the others say something else", () => {
+    process.env.TANGENT_DRY_RUN = "0";
     process.env.TERMINAL_VELOCITY_DRY_RUN = "0";
     process.env.LINEAR_TUI_DRY_RUN = "1";
     expect(dryRunRequested()).toBe(true);
@@ -29,7 +40,7 @@ describe("dryRunRequested", () => {
 
   test("only exactly '1' counts", () => {
     for (const value of ["", "0", "true", "yes", "2"]) {
-      process.env.TERMINAL_VELOCITY_DRY_RUN = value;
+      process.env.TANGENT_DRY_RUN = value;
       expect(dryRunRequested()).toBe(false);
     }
   });
@@ -40,11 +51,11 @@ describe("mouseStartsOff", () => {
     expect(mouseStartsOff()).toBe(false);
   });
 
-  test("either name set to 0 turns the mouse off at start", () => {
-    process.env.TERMINAL_VELOCITY_MOUSE = "0";
-    expect(mouseStartsOff()).toBe(true);
-    delete process.env.TERMINAL_VELOCITY_MOUSE;
-    process.env.LINEAR_TUI_MOUSE = "0";
-    expect(mouseStartsOff()).toBe(true);
-  });
+  test.each(["TANGENT_MOUSE", "TERMINAL_VELOCITY_MOUSE", "LINEAR_TUI_MOUSE"])(
+    "%s set to 0 turns the mouse off at start",
+    (name) => {
+      process.env[name] = "0";
+      expect(mouseStartsOff()).toBe(true);
+    },
+  );
 });

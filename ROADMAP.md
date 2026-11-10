@@ -1,6 +1,6 @@
 # Roadmap
 
-Where Terminal Velocity is headed, in broad strokes. **The details live in the [issues](https://github.com/trounceabout/terminal-velocity/issues)**: each item below links to its issue, which has the design notes, a rough size (S, M, L) and labels you can filter by. Treat the issues as the source of truth; this page only gives the shape of the plan.
+Where Tangent is headed, in broad strokes. **The details live in the [issues](https://github.com/trounceabout/terminal-velocity/issues)**: each item below links to its issue, which has the design notes, a rough size (S, M, L) and labels you can filter by. Treat the issues as the source of truth; this page only gives the shape of the plan.
 
 Anything marked **⚠ writes** would let the app change data in Linear, so it gets the same care as the existing edit flow: confirm first, dry run support, and tests that count the requests actually sent.
 

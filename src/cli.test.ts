@@ -1,4 +1,4 @@
-// Tests for src/cli.ts: what `terminal-velocity` does with its command-line arguments.
+// Tests for src/cli.ts: what `tangent` does with its command-line arguments.
 
 import { describe, expect, test } from "bun:test";
 import { helpText, parseArgs, userArgs, versionText } from "./cli.ts";
@@ -14,7 +14,7 @@ describe("userArgs", () => {
   });
 
   // The Bun quirk: with no arguments, a compiled binary's argv gets its own path as an extra.
-  test.each([["./tv"], ["/usr/local/bin/terminal-velocity"], ["terminal-velocity"]])(
+  test.each([["./tv"], ["/usr/local/bin/tangent"], ["tangent"]])(
     "a compiled binary's own path (%s) is not an argument",
     (path) => {
       expect(userArgs(["bun", "/$bunfs/root/tv", path], path)).toEqual([]);
@@ -66,14 +66,14 @@ describe("parseArgs", () => {
 
 describe("versionText", () => {
   test("is the command name and the version", () => {
-    expect(versionText("1.2.3")).toBe("terminal-velocity 1.2.3");
+    expect(versionText("1.2.3")).toBe("tangent 1.2.3");
   });
 });
 
 describe("helpText", () => {
   test("lists both flags and both environment switches", () => {
     const text = helpText();
-    for (const word of ["--help", "--version", "TERMINAL_VELOCITY_DRY_RUN", "TERMINAL_VELOCITY_MOUSE"]) {
+    for (const word of ["--help", "--version", "TANGENT_DRY_RUN", "TANGENT_MOUSE"]) {
       expect(text).toContain(word);
     }
   });
@@ -101,7 +101,7 @@ describe("index.tsx as a command", () => {
   test("--version prints the version from package.json and exits 0", async () => {
     const pkg = await Bun.file("package.json").json();
     const { stdout, code } = await run("--version");
-    expect(stdout.trim()).toBe(`terminal-velocity ${pkg.version}`);
+    expect(stdout.trim()).toBe(`tangent ${pkg.version}`);
     expect(code).toBe(0);
   });
 

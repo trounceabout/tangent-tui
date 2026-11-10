@@ -242,7 +242,7 @@ describe("CycleHeader", () => {
   test("shows the title, each cycle's progress bar, percentage and days left", () => {
     setSystemTime(NOW);
     const out = lines(<CycleHeader cycles={[cycle("PD #112", 70), cycle("UC #39", 0)]} doneColor="#4cb782" />, 47);
-    expect(out[0]).toContain("TERMINAL VELOCITY");
+    expect(out[0]).toContain("TANGENT");
     const pd = out.find((l) => l.includes("PD #112")) ?? "";
     expect(pd).toContain("70%");
     expect(pd).toContain("ends tomorrow");

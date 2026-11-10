@@ -2,7 +2,7 @@
   "lockfileVersion": 1,
   "workspaces": {
     "": {
-      "name": "terminal-velocity",
+      "name": "tangent-tui",
       "dependencies": {
         "ink": "^8.0.0",
         "react": "^19.3.1",
