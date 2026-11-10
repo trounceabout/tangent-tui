@@ -11,6 +11,7 @@ A full-screen terminal app (Bun + TypeScript + Ink 8) showing my Linear issues f
 ## Layout
 
 - `index.tsx` entry point and the `terminal-velocity` command (`bin` in `package.json`, `#!/usr/bin/env bun`, must stay executable). Handles `--help`/`--version` first, then loads the UI with `await import` (so those flags never touch raw mode) and renders `<App />` with `alternateScreen: true`.
+- `scripts/build.ts` builds the single-file macOS binaries (`bun run build [darwin-arm64|darwin-x64]`, output in `dist/`). Build tool only; nothing in `src/` imports it. Two things it does that look odd but are needed: it stubs `react-devtools-core` (Ink loads it on demand; without the stub the binary crashes at startup) and it re-signs each binary with `codesign` (compiling breaks the signature and macOS then kills the binary), so it only runs on macOS. x64 uses Bun's baseline build so it runs on older Intel Macs and under Rosetta.
 - `src/cli.ts` command-line arguments: `userArgs`, `parseArgs`, `helpText`, `versionText`. Pure; unknown options are an error, never a silent start. The version comes from `package.json`. `userArgs` exists because of a Bun 1.2.21 quirk: a compiled binary run with NO arguments gets its own path as a fake first argument, so don't read `process.argv.slice(2)` directly.
 - `src/linear.ts` DATA layer: Keychain key, GraphQL fetch, grouping/sorting, cycle progress, estimate and due-date formatting. Returns plain values only. No terminal or styling code here.
 - `src/components.tsx` visual pieces (`IssueRow`, `GroupHeader`, `CycleHeader`).
