@@ -137,7 +137,7 @@ afterEach(() => {
   spawn.mockRestore();
   restoreFetch?.();
   restoreFetch = undefined;
-  delete process.env.LINEAR_TUI_DRY_RUN;
+  delete process.env.TANGENT_DRY_RUN;
 });
 
 // Start the app against the fake Linear and wait for the first load.
@@ -244,7 +244,7 @@ describe("the edit panel floats over the detail screen", () => {
   });
 
   test("dry-run: the whole flow works, the banner shows, and nothing is sent", async () => {
-    process.env.LINEAR_TUI_DRY_RUN = "1";
+    process.env.TANGENT_DRY_RUN = "1";
     const app = await startApp();
     await app.openDetail();
     await app.press("s");

@@ -55,8 +55,8 @@ export const helpText = (): string =>
     "  -v, --version   Show the version and exit",
     "",
     "Environment:",
-    "  TERMINAL_VELOCITY_DRY_RUN=1   Try every screen; nothing is sent to Linear",
-    "  TERMINAL_VELOCITY_MOUSE=0     Start with the mouse off (press m to toggle)",
+    "  TANGENT_DRY_RUN=1   Try every screen; nothing is sent to Linear",
+    "  TANGENT_MOUSE=0     Start with the mouse off (press m to toggle)",
     "",
     "Inside the app, press ? to see every key.",
   ].join("\n");

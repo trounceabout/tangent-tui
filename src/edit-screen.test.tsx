@@ -36,7 +36,7 @@ afterEach(() => {
   spawn.mockRestore();
   restoreFetch?.();
   restoreFetch = undefined;
-  delete process.env.LINEAR_TUI_DRY_RUN;
+  delete process.env.TANGENT_DRY_RUN;
 });
 
 const teamSettings = {
@@ -277,7 +277,7 @@ describe("nothing is sent when there is nothing to change", () => {
   });
 
   test("dry-run mode does the whole flow and sends no write", async () => {
-    process.env.LINEAR_TUI_DRY_RUN = "1";
+    process.env.TANGENT_DRY_RUN = "1";
     const edit = mount("priority");
     await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter);
