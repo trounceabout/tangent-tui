@@ -432,3 +432,32 @@ describe.skipIf(!onMac)("install.sh", () => {
     });
   });
 });
+
+// The README quotes the install command and the settings by name. These checks stop the
+// README and the script drifting apart (they don't need a Mac).
+describe("README install section", () => {
+  const readme = () => Bun.file(join(root, "README.md")).text();
+  const script = () => Bun.file(scriptPath).text();
+
+  test("shows the same curl command that install.sh's own header shows", async () => {
+    const command = /curl -fsSL (https:\/\/raw\.githubusercontent\.com\/\S+\/install\.sh)/;
+    const fromScript = command.exec(await script())?.[1];
+    const fromReadme = command.exec(await readme())?.[1];
+    expect(fromScript).toBe("https://raw.githubusercontent.com/trounceabout/terminal-velocity/main/install.sh");
+    expect(fromReadme).toBe(fromScript);
+  });
+
+  test("every TERMINAL_VELOCITY_* install setting the README names is real", async () => {
+    const section = ((await readme()).split("## Install")[1] ?? "").split("## Requirements")[0] ?? "";
+    expect(section.length).toBeGreaterThan(500); // really found the Install section
+    const named = new Set(section.match(/TERMINAL_VELOCITY_[A-Z_]+/g) ?? []);
+    expect([...named].sort()).toEqual(["TERMINAL_VELOCITY_INSTALL_DIR", "TERMINAL_VELOCITY_VERSION"]);
+    const code = await script();
+    for (const name of named) expect(code).toContain(`${name}:-`);
+  });
+
+  test("the file names it tells people to download are the ones the build produces", async () => {
+    const section = (await readme()).split("### Check what you downloaded")[0] ?? "";
+    for (const name of [ARM, X64]) expect(section).toContain(name);
+  });
+});

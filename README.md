@@ -13,33 +13,101 @@ A full-screen terminal app (in the spirit of lazygit) that shows **your Linear i
 
 Built with [Bun](https://bun.sh), TypeScript and [Ink](https://github.com/vadimdemedes/ink) (React for the terminal).
 
+## Install
+
+Terminal Velocity runs on **macOS** (Apple Silicon or Intel). It reads your Linear key from the macOS Keychain and opens links with `open`; Linux support is planned (issue #7).
+
+### One command
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/trounceabout/terminal-velocity/main/install.sh | sh
+```
+
+This downloads the latest release for your Mac, checks it against the release's checksum, and installs a `terminal-velocity` command into `~/.local/bin`. It doesn't use `sudo`, doesn't need Bun, and doesn't touch your shell config. If it says `~/.local/bin` is not on your `PATH`, add the line it prints to `~/.zshrc`.
+
+The script is short ([install.sh](install.sh), about 90 lines), so read it before you run it if you like. If it can't verify the download, it installs nothing.
+
+To pick a version or a folder, set these on the `sh` side of the pipe:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/trounceabout/terminal-velocity/main/install.sh \
+  | TERMINAL_VELOCITY_VERSION=v0.1.0 TERMINAL_VELOCITY_INSTALL_DIR=~/bin sh
+```
+
+### With Bun
+
+If you already have [Bun](https://bun.sh) 1.2 or newer:
+
+```sh
+bunx github:trounceabout/terminal-velocity            # run it once, nothing installed
+bun install -g github:trounceabout/terminal-velocity  # install the command
+```
+
+This runs straight from the source on GitHub. (It isn't on npm: the name `terminal-velocity` belongs to an unrelated project.)
+
+### Download by hand
+
+Every release on the [Releases page](https://github.com/trounceabout/terminal-velocity/releases) has a binary for each Mac (`terminal-velocity-darwin-arm64` for Apple Silicon, `terminal-velocity-darwin-x64` for Intel) and a `SHA256SUMS` file.
+
+macOS **refuses to run a binary you download in a browser** (it is killed straight away) because these binaries are not notarized by Apple. Clear the quarantine mark, then make it executable and put it on your `PATH`:
+
+```sh
+xattr -d com.apple.quarantine terminal-velocity-darwin-arm64
+chmod +x terminal-velocity-darwin-arm64
+mv terminal-velocity-darwin-arm64 ~/.local/bin/terminal-velocity
+```
+
+The one-command install isn't affected, because `curl` doesn't add the quarantine mark.
+
+### Check what you downloaded
+
+The one-command install already checks the checksum. To check a file you downloaded by hand, put it in the same folder as `SHA256SUMS`:
+
+```sh
+shasum -a 256 -c --ignore-missing SHA256SUMS
+```
+
+A checksum shows the file arrived intact. It doesn't prove the release is genuine, because the checksum file is published next to the binary. For that, each release carries a signed **build-provenance attestation**: proof that GitHub Actions built this exact file from this repository. With the [GitHub CLI](https://cli.github.com/):
+
+```sh
+gh attestation verify terminal-velocity-darwin-arm64 --repo trounceabout/terminal-velocity
+```
+
+### Update
+
+Run the same install command again. It replaces the old version, and your Keychain key is untouched. (With Bun: `bun remove -g terminal-velocity`, then `bun install -g github:trounceabout/terminal-velocity` again.)
+
+### Uninstall
+
+```sh
+rm ~/.local/bin/terminal-velocity        # installed with the one command or by hand
+bun remove -g terminal-velocity          # installed with Bun
+```
+
+Your Linear key stays in the Keychain until you remove it. If you want it gone too:
+
+```sh
+security delete-generic-password -s linear-api-key
+```
+
 ## Requirements
 
-- macOS (it reads the API key from the Keychain and opens links with `open`)
-- [Bun](https://bun.sh) 1.2 or newer
-- A Linear personal API key (Linear → Settings → Security & access → Personal API keys). A read-only key is enough.
+- macOS
+- A Linear personal API key (Linear → Settings → Security & access → Personal API keys). A read-only key is enough to look at your board; changing issues needs write access.
+- [Bun](https://bun.sh) 1.2 or newer, but **only** for the Bun install or for running from source. The one-command install and the downloaded binaries don't need it.
 
 ## Setup
 
-```sh
-bun install
+Store your API key in the macOS Keychain once, after installing. It prompts for the key, so it never lands in your shell history or in a file:
 
-# Store your API key in the macOS Keychain. It prompts for the key,
-# so it never lands in your shell history or in a file.
+```sh
 security add-generic-password -a "$USER" -s linear-api-key -w
 ```
 
 ## Run
 
 ```sh
-bun run start
-```
-
-Or install it as a command, so you can run it from any folder:
-
-```sh
-bun link            # once, from inside the repo
-terminal-velocity   # start the app
+terminal-velocity
 terminal-velocity --help      # usage and environment switches
 terminal-velocity --version
 ```
@@ -91,7 +159,7 @@ After a change you stay on the screen you were on, and it shows Linear's new val
 - If Linear refuses (for example your API key is read-only), the error is shown, nothing changes, and `Enter` retries.
 - After a change the board reloads from Linear, so it shows what Linear really has.
 
-**Try it safely:** start the app with `TERMINAL_VELOCITY_DRY_RUN=1 bun run start`. Every screen works and the footer shows `DRY RUN`, but nothing is ever sent. (The app used to be called linear-tui, so the old `LINEAR_TUI_DRY_RUN` and `LINEAR_TUI_MOUSE` names still work too.)
+**Try it safely:** start the app with `TERMINAL_VELOCITY_DRY_RUN=1 terminal-velocity`. Every screen works and the footer shows `DRY RUN`, but nothing is ever sent. (The app used to be called linear-tui, so the old `LINEAR_TUI_DRY_RUN` and `LINEAR_TUI_MOUSE` names still work too.)
 
 Your API key needs **write** permission for changes to succeed; reading the board only needs read access.
 
@@ -124,13 +192,24 @@ The mouse works alongside the keys.
 
 ## Development
 
+To work on the code, run it from source:
+
 ```sh
-bun test            # 171 tests, about a quarter of a second; no network or Keychain needed
-bun run typecheck   # tsc --noEmit (strict, with noUncheckedIndexedAccess)
-bun run lint        # oxlint
+git clone https://github.com/trounceabout/terminal-velocity.git
+cd terminal-velocity
+bun install
+bun run start       # run from source (needs a real terminal)
+bun link            # make `terminal-velocity` run from this folder; `bun unlink` undoes it
 ```
 
-See `CLAUDE.md` for how the code is organized.
+```sh
+bun test            # about 25 seconds; no network or Keychain needed
+bun run typecheck   # tsc --noEmit (strict, with noUncheckedIndexedAccess)
+bun run lint        # oxlint
+bun run build       # the single-file binaries, into dist/ (macOS only)
+```
+
+Releases are built by GitHub Actions when a version tag is pushed. See `CLAUDE.md` for how the code is organized and for the release steps.
 
 ## License
 
