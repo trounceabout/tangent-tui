@@ -34,6 +34,7 @@ A full-screen terminal app (Bun + TypeScript + Ink 8) showing my Linear issues f
 - `src/keys.ts` `expandBurst()`: see the input gotcha below.
 - `src/theme.ts` the few colors Linear's API doesn't provide.
 - `src/open.ts` opens links with macOS `open` (https only).
+- `src/auth/` the pure building blocks for browser login (OAuth; tracking issue #65). Nothing here sends a request, opens a browser or stores a token yet: the login command, token store and refresh come in later issues (#68, #69). `config.ts` the registered Linear app: a PUBLIC client ID and no client secret anywhere (PKCE replaces it), the endpoints, the scopes (`read` + `issues:create`, provisional until a real update is tried on a throwaway issue, #66) and the redirect ports registered with Linear. **Linear matches redirect addresses exactly, port included**, so `redirectUriFor()` refuses any port not in `REDIRECT_PORTS`; adding a port means adding it in Linear's app settings too, and always use `127.0.0.1`, never `localhost`. `pkce.ts` verifier, S256 challenge and `state`. `authorize.ts` the consent-screen address (scopes comma-separated; `prompt=consent` is what brings back Linear's workspace switcher). `token.ts` the code-exchange and refresh requests and `parseTokenResponse`: Linear's reply is untrusted, so it is checked field by field, text goes through `cleanText()` and is length-capped, and a token value must never appear in an error message. `expiry.ts` `isDueForRefresh` (5-minute margin).
 
 ## Conventions and gotchas
 
