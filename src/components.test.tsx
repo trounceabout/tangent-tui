@@ -52,7 +52,7 @@ const tall = makeIssue({
 // ---------------------------------------------------------------------------
 describe("IssueRow content", () => {
   test("first line: ID, title and estimate. Second line: labels and due date.", () => {
-    const [first, second] = lines(<IssueRow issue={tall} selected={false} width={100} />, 100);
+    const [first, second] = lines(<IssueRow issue={tall} selected={false} width={100} showLabels />, 100);
     expect(first).toContain("PD-3066");
     expect(first).toContain("Design VM deployment flow and provisioning state for the new portal");
     expect(first?.trimEnd().endsWith("M")).toBe(true); // 3 = "M" on a T-shirt team
@@ -62,29 +62,29 @@ describe("IssueRow content", () => {
   });
 
   test("a row with no estimate shows none", () => {
-    const [first] = lines(<IssueRow issue={makeIssue({ title: "Just a title", estimate: null })} selected={false} width={60} />, 60);
+    const [first] = lines(<IssueRow issue={makeIssue({ title: "Just a title", estimate: null })} selected={false} width={60} showLabels />, 60);
     expect(first?.trimEnd().endsWith("Just a title")).toBe(true);
   });
 
   test("the selected row starts with a marker bar; others start with a space", () => {
     const issue = makeIssue();
-    expect(lines(<IssueRow issue={issue} selected width={60} />, 60)[0]?.startsWith("▌")).toBe(true);
-    expect(lines(<IssueRow issue={issue} selected={false} width={60} />, 60)[0]?.startsWith(" ")).toBe(true);
+    expect(lines(<IssueRow issue={issue} selected width={60} showLabels />, 60)[0]?.startsWith("▌")).toBe(true);
+    expect(lines(<IssueRow issue={issue} selected={false} width={60} showLabels />, 60)[0]?.startsWith(" ")).toBe(true);
   });
 
   test("urgent shows a ! block; other priorities show bars", () => {
-    expect(lines(<IssueRow issue={makeIssue({ priority: 1 })} selected={false} width={60} />, 60)[0]).toContain(" ! ");
-    expect(lines(<IssueRow issue={makeIssue({ priority: 2 })} selected={false} width={60} />, 60)[0]).toContain("▂▄▆");
+    expect(lines(<IssueRow issue={makeIssue({ priority: 1 })} selected={false} width={60} showLabels />, 60)[0]).toContain(" ! ");
+    expect(lines(<IssueRow issue={makeIssue({ priority: 2 })} selected={false} width={60} showLabels />, 60)[0]).toContain("▂▄▆");
   });
 
   test("labels that don't fit collapse into +N", () => {
-    const narrow = lines(<IssueRow issue={tall} selected={false} width={34} />, 34)[1];
+    const narrow = lines(<IssueRow issue={tall} selected={false} width={34} showLabels />, 34)[1];
     expect(narrow).toMatch(/\+\d/);
   });
 
   test("a row with no labels and no due date is a single line", () => {
     const plain = makeIssue({ labels: { nodes: [] }, dueDate: null });
-    expect(lines(<IssueRow issue={plain} selected={false} width={60} />, 60).filter((l) => l.trim() !== "")).toHaveLength(1);
+    expect(lines(<IssueRow issue={plain} selected={false} width={60} showLabels />, 60).filter((l) => l.trim() !== "")).toHaveLength(1);
   });
 });
 
@@ -93,27 +93,27 @@ describe("IssueRow layout", () => {
 
   test("the issue ID is never wrapped or squeezed, at any width", () => {
     for (const columns of widths) {
-      const [first] = lines(<IssueRow issue={tall} selected={false} width={columns} />, columns);
+      const [first] = lines(<IssueRow issue={tall} selected={false} width={columns} showLabels />, columns);
       expect(first).toContain("PD-3066");
     }
   });
 
   test("no line is ever wider than the pane", () => {
     for (const columns of widths) {
-      for (const line of lines(<IssueRow issue={tall} selected width={columns} />, columns)) {
+      for (const line of lines(<IssueRow issue={tall} selected width={columns} showLabels />, columns)) {
         expect(width(line)).toBeLessThanOrEqual(columns);
       }
     }
   });
 
   test("a title too long for the pane is cut with an ellipsis, a short one is not", () => {
-    expect(lines(<IssueRow issue={tall} selected={false} width={47} />, 47)[0]).toContain("…");
-    expect(lines(<IssueRow issue={tall} selected={false} width={100} />, 100)[0]).not.toContain("…");
+    expect(lines(<IssueRow issue={tall} selected={false} width={47} showLabels />, 47)[0]).toContain("…");
+    expect(lines(<IssueRow issue={tall} selected={false} width={100} showLabels />, 100)[0]).not.toContain("…");
   });
 
   test("the estimate stays at the right edge, in the same column for every row", () => {
-    const a = lines(<IssueRow issue={makeIssue({ title: "short", estimate: 1 })} selected={false} width={50} />, 50)[0] ?? "";
-    const b = lines(<IssueRow issue={makeIssue({ title: "a much longer title here", estimate: 8 })} selected={false} width={50} />, 50)[0] ?? "";
+    const a = lines(<IssueRow issue={makeIssue({ title: "short", estimate: 1 })} selected={false} width={50} showLabels />, 50)[0] ?? "";
+    const b = lines(<IssueRow issue={makeIssue({ title: "a much longer title here", estimate: 8 })} selected={false} width={50} showLabels />, 50)[0] ?? "";
     expect(a.trimEnd().length).toBe(b.trimEnd().length);
   });
 });
@@ -129,7 +129,7 @@ describe("IssueRow in a container that is too short", () => {
     const out = renderToString(
       <Box flexDirection="column" width={60} height={4} overflow="hidden">
         {["PD-1", "PD-2", "PD-3"].map((id) => (
-          <IssueRow key={id} issue={row(id)} selected={false} width={60} />
+          <IssueRow key={id} issue={row(id)} selected={false} width={60} showLabels />
         ))}
       </Box>,
       { columns: 60 },
@@ -165,14 +165,14 @@ describe("issueHeight matches what is actually drawn", () => {
   }
 
   test("1 line without details, 2 with", () => {
-    expect(issueHeight(makeIssue())).toBe(1);
-    expect(issueHeight(tall)).toBe(2);
+    expect(issueHeight(makeIssue(), true)).toBe(1);
+    expect(issueHeight(tall, true)).toBe(2);
   });
 
   test("with labels hidden, only a due date makes a second line", () => {
     const labelsOnly = makeIssue({ labels: labels("CPQ"), dueDate: null });
     const dueOnly = makeIssue({ labels: { nodes: [] }, dueDate: "2030-01-01" });
-    expect(issueHeight(labelsOnly)).toBe(2);
+    expect(issueHeight(labelsOnly, true)).toBe(2);
     expect(issueHeight(labelsOnly, false)).toBe(1); // the row gets shorter
     expect(issueHeight(dueOnly, false)).toBe(2); // the due date keeps its line
     expect(issueHeight(tall, false)).toBe(2);
@@ -196,8 +196,8 @@ describe("IssueRow with labels hidden", () => {
     expect(out.join("\n")).not.toContain("CPQ");
   });
 
-  test("labels are shown by default (existing behaviour)", () => {
-    expect(lines(<IssueRow issue={tall} selected={false} width={100} />, 100)[1]).toContain("● Feature");
+  test("with labels shown, the label names are drawn", () => {
+    expect(lines(<IssueRow issue={tall} selected={false} width={100} showLabels />, 100)[1]).toContain("● Feature");
   });
 });
 

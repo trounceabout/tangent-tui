@@ -73,7 +73,8 @@ export function fitLabels(labels: Label[], room: number): { shown: Label[]; hidd
 // a detail line (labels or a due date). The app needs this to work out scrolling,
 // and it must match the condition IssueRow uses to draw the detail line.
 // `showLabels` is the view setting: with labels hidden, only a due date can make a detail line.
-export function issueHeight(issue: Issue, showLabels = true): number {
+// It is required on purpose: a caller that forgot it would get wrong heights and no error.
+export function issueHeight(issue: Issue, showLabels: boolean): number {
   const labelCount = showLabels ? issue.labels.nodes.length : 0;
   return 1 + (labelCount > 0 || formatDue(issue) ? 1 : 0);
 }
@@ -91,14 +92,14 @@ export function IssueRow({
   issue,
   selected,
   width,
-  showLabels = true,
+  showLabels,
 }: {
   issue: Issue;
   selected: boolean;
   width: number;
   // The "show labels" view setting. When false the labels are treated as if the issue had
   // none, so the due date (if any) keeps the detail line and otherwise the row is one line.
-  showLabels?: boolean;
+  showLabels: boolean;
 }) {
   const muted = isFinished(issue.state.type);
   const canceled = issue.state.type === "canceled";
