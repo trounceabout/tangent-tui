@@ -11,6 +11,7 @@ export const CLIENT_ID = "9b09e03638d1cb465942cf349090915e";
 export const AUTHORIZE_URL = "https://linear.app/oauth/authorize";
 export const TOKEN_URL = "https://api.linear.app/oauth/token";
 export const REVOKE_URL = "https://api.linear.app/oauth/revoke";
+export const GRAPHQL_URL = "https://api.linear.app/graphql";
 
 // What Tangent asks to do. `read` is the default and always present; `issues:create` is what
 // Linear describes as "create and update issues" (all Tangent changes: status, priority,
