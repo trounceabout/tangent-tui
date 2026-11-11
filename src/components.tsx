@@ -72,8 +72,10 @@ export function fitLabels(labels: Label[], room: number): { shown: Label[]; hidd
 // How many terminal lines an issue takes: 1 for the title row, plus 1 if it has
 // a detail line (labels or a due date). The app needs this to work out scrolling,
 // and it must match the condition IssueRow uses to draw the detail line.
-export function issueHeight(issue: Issue): number {
-  return 1 + (issue.labels.nodes.length > 0 || formatDue(issue) ? 1 : 0);
+// `showLabels` is the view setting: with labels hidden, only a due date can make a detail line.
+export function issueHeight(issue: Issue, showLabels = true): number {
+  const labelCount = showLabels ? issue.labels.nodes.length : 0;
+  return 1 + (labelCount > 0 || formatDue(issue) ? 1 : 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -85,12 +87,24 @@ export function issueHeight(issue: Issue): number {
 // `selected` draws the left marker (used once we add keyboard selection).
 // `width` is the pane width, needed to decide how many labels fit.
 // ---------------------------------------------------------------------------
-export function IssueRow({ issue, selected, width }: { issue: Issue; selected: boolean; width: number }) {
+export function IssueRow({
+  issue,
+  selected,
+  width,
+  showLabels = true,
+}: {
+  issue: Issue;
+  selected: boolean;
+  width: number;
+  // The "show labels" view setting. When false the labels are treated as if the issue had
+  // none, so the due date (if any) keeps the detail line and otherwise the row is one line.
+  showLabels?: boolean;
+}) {
   const muted = isFinished(issue.state.type);
   const canceled = issue.state.type === "canceled";
   const estimate = formatEstimate(issue);
   const due = formatDue(issue);
-  const labels = issue.labels.nodes;
+  const labels = showLabels ? issue.labels.nodes : [];
 
   // Room for labels = pane width, minus the 15 columns on the left, minus the
   // due date (and the 1-column gap before it) if there is one.

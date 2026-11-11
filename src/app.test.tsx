@@ -5,11 +5,16 @@
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Mock } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { App } from "./app.tsx";
 import { helpHeight } from "./help-screen.tsx";
 import { helpLines } from "./help.ts";
 import { panelGeometry } from "./panel.tsx";
+import { saveSettings } from "./settings.ts";
 import { ESC, mockFetch } from "./testing.ts";
+import { viewHeight } from "./view-screen.tsx";
 import type { SeenRequest } from "./testing.ts";
 import { KEY, mountTerminal } from "./testing-terminal.ts";
 
@@ -28,8 +33,10 @@ const DESCRIPTION = Array.from({ length: 60 }, (_, i) => `Line ${i + 1} ${"=".re
 
 // A tiny fake of Linear: one issue (PD-7) whose status, priority and estimate can be
 // changed, plus the detail and team-settings queries.
-function fakeLinear(extraIssues = 0) {
+// `labelled` gives every issue one label, so each row is two lines tall (title + labels).
+function fakeLinear(extraIssues = 0, labelled = false) {
   const server = { stateId: ID(1), priority: 2, estimate: 3, requests: [] as SeenRequest[], writes: [] as unknown[] };
+  const labelNodes = labelled ? [{ name: "CPQ", color: "#4cb782" }] : [];
   // More issues, to give the list something to scroll. Each is one line tall, in the same group.
   const extraIssue = (i: number) => ({
     identifier: `PD-${100 + i}`,
@@ -39,7 +46,7 @@ function fakeLinear(extraIssues = 0) {
     state: { name: "Todo", type: "unstarted", position: 1, color: "#e2e2e2" },
     dueDate: null,
     estimate: null,
-    labels: { nodes: [] },
+    labels: { nodes: labelNodes },
     team: { key: "PD", issueEstimationType: "tShirt" },
     cycle: { number: 1, endsAt: "2099-12-30T05:00:00.000Z", team: { key: "PD" } },
   });
@@ -109,7 +116,7 @@ function fakeLinear(extraIssues = 0) {
                 state: { name: state.name, type: state.type, position: 1, color: "#e2e2e2" },
                 dueDate: null,
                 estimate: server.estimate,
-                labels: { nodes: [] },
+                labels: { nodes: labelNodes },
                 team: { key: "PD", issueEstimationType: "tShirt" },
                 cycle: { number: 1, endsAt: "2099-12-30T05:00:00.000Z", team: { key: "PD" } },
               },
@@ -125,7 +132,13 @@ function fakeLinear(extraIssues = 0) {
 
 let spawn: Mock<typeof Bun.spawn>;
 let restoreFetch: (() => void) | undefined;
+// The app reads (and, when a view setting changes, writes) its settings file. Every test gets
+// an empty temp folder instead, so none of them ever touches the real ~/.config/tangent.
+let configDir: string;
+const savedXdg = process.env.XDG_CONFIG_HOME;
 beforeEach(() => {
+  configDir = mkdtempSync(join(tmpdir(), "tangent-app-test-"));
+  process.env.XDG_CONFIG_HOME = configDir;
   // The Keychain read is replaced by a fake key.
   spawn = spyOn(Bun, "spawn").mockImplementation((() => ({
     stdout: new Response("fake-key\n").body,
@@ -138,11 +151,14 @@ afterEach(() => {
   restoreFetch?.();
   restoreFetch = undefined;
   delete process.env.TANGENT_DRY_RUN;
+  if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = savedXdg;
+  rmSync(configDir, { recursive: true, force: true });
 });
 
 // Start the app against the fake Linear and wait for the first load.
-async function startApp({ extraIssues = 0 } = {}) {
-  const linear = fakeLinear(extraIssues);
+async function startApp({ extraIssues = 0, labelled = false } = {}) {
+  const linear = fakeLinear(extraIssues, labelled);
   restoreFetch = mockFetch(linear.respond);
   // mouse: true gives the app the real mouse pipeline (the filter and the context).
   const terminal = mountTerminal(<App />, { columns: COLUMNS, rows: ROWS, mouse: true });
@@ -698,6 +714,149 @@ describe("the mouse in the edit panel (a click never saves)", () => {
     await app.click(COLUMNS / 2, rowOf(app, "Change priority"));
     await app.click(COLUMNS / 2, rowOf(app, "enter select"));
     expect(app.screen()).toBe(before);
+    app.unmount();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// View settings: the `v` panel, and what hiding labels does to the list.
+describe("view settings (the v panel)", () => {
+  const BODY_TOP = 4; // the list starts on screen row 4 (rows are counted from 0)
+  // Where the panel's single option is drawn: below its border (1) and header (3).
+  const panel = panelGeometry(COLUMNS, ROWS, viewHeight(1));
+  const OPTION_Y = panel.top + 1 + 3;
+  const settingsFile = () => join(configDir, "tangent", "settings.json");
+
+  test("opens over the board, which stays visible; Esc closes it", async () => {
+    const app = await startApp();
+    await app.press("v");
+    expect(app.screen()).toContain("View settings");
+    expect(app.screen()).toContain("Choose what the list shows");
+    expect(app.screen()).toContain("[x] Show labels"); // labels are shown by default
+    expect(app.rowsOf()[0]).toContain("TANGENT"); // the board is still there, above the panel
+    await app.press(KEY.esc);
+    await app.waitFor(() => !app.screen().includes("View settings"));
+    expect(app.screen()).toContain("PD-7");
+    app.unmount();
+  });
+
+  test("space hides the labels, shortens the rows, and the status line says so", async () => {
+    const app = await startApp({ extraIssues: 3, labelled: true });
+    expect(app.rowsOf()[BODY_TOP + 2]).toContain("● CPQ"); // PD-7's label line
+    expect(app.rowsOf()[BODY_TOP + 3]).toContain("PD-100"); // two lines per row
+    expect(app.screen()).not.toContain("labels off");
+
+    await app.press("v", KEY.space);
+    expect(app.screen()).toContain("[ ] Show labels"); // applies at once, behind the panel
+    await app.press(KEY.esc);
+    await app.waitFor(() => !app.screen().includes("View settings"));
+    expect(app.screen()).not.toContain("● CPQ");
+    expect(app.rowsOf()[BODY_TOP + 2]).toContain("PD-100"); // one line per row now
+    expect(app.rowsOf().at(-1)).toContain("labels off");
+
+    await app.press("v", KEY.enter); // Enter flips it back
+    await app.press(KEY.esc);
+    await app.waitFor(() => !app.screen().includes("View settings"));
+    expect(app.screen()).toContain("● CPQ");
+    expect(app.screen()).not.toContain("labels off");
+    app.unmount();
+  });
+
+  test("a burst of spaces (a held key or a paste) doesn't flip the setting", async () => {
+    const app = await startApp();
+    await app.press("v");
+    await app.press("   "); // ONE chunk of three spaces
+    expect(app.screen()).toContain("[x] Show labels");
+    await app.press(KEY.space); // a single press does flip it
+    expect(app.screen()).toContain("[ ] Show labels");
+    app.unmount();
+  });
+
+  test("the choice is saved, and the next start comes up with it", async () => {
+    const first = await startApp({ labelled: true });
+    await first.press("v", KEY.space);
+    expect(JSON.parse(readFileSync(settingsFile(), "utf8"))).toEqual({ showLabels: false });
+    first.unmount();
+    restoreFetch?.(); // put the real fetch back before the second app installs its own
+    restoreFetch = undefined;
+
+    const second = await startApp({ labelled: true });
+    expect(second.screen()).not.toContain("● CPQ");
+    expect(second.rowsOf().at(-1)).toContain("labels off");
+    second.unmount();
+  });
+
+  test("while the panel is open, the board's keys are off, and q closes only the panel", async () => {
+    const app = await startApp();
+    await app.press("v");
+    await app.press("m", "/", "?", "G");
+    expect(app.screen()).not.toContain("mouse off"); // m did nothing
+    expect(app.screen()).not.toContain("enter keep"); // / didn't open the search bar
+    expect(app.screen()).not.toContain("Keyboard help"); // ? didn't open the help
+    await app.press("q"); // closes the panel, doesn't quit the app
+    await app.waitFor(() => !app.screen().includes("View settings"));
+    expect(app.screen()).toContain("TANGENT");
+    app.unmount();
+  });
+
+  test("turning labels back ON keeps the highlighted row on screen, even though rows got taller", async () => {
+    // Start with labels hidden: rows are one line, so the 20th row is well inside the window.
+    saveSettings({ showLabels: false }, join(configDir, "tangent"));
+    const app = await startApp({ extraIssues: 40, labelled: true });
+    await app.press(...Array<string>(20).fill(KEY.j));
+    expect(app.screen()).toContain("▌ PD-118");
+    // With labels on, that row now starts at line ~39, far below the 24-line window.
+    await app.press("v", KEY.space, KEY.esc);
+    await app.waitFor(() => !app.screen().includes("View settings"));
+    expect(app.screen()).toContain("▌ PD-118");
+    app.unmount();
+  });
+
+  test("clicks in the list hit the right issue after the rows change height", async () => {
+    const app = await startApp({ extraIssues: 3, labelled: true });
+    await app.press("v", KEY.space, KEY.esc);
+    await app.waitFor(() => !app.screen().includes("View settings"));
+    await app.click(10, BODY_TOP + 2); // with one-line rows this is PD-100 (it would be PD-7's label line otherwise)
+    await app.waitForText("DESCRIPTION");
+    expect(app.screen()).toContain("Extra issue 0");
+    app.unmount();
+  });
+
+  test("clicking the option flips it; clicking beside it does nothing; clicking outside closes; nothing is ever written to Linear", async () => {
+    const app = await startApp({ labelled: true });
+    await app.press("v");
+    await app.click(10, panel.top + 1); // the title bar
+    await app.click(10, panel.top + panel.height - 2); // the footer
+    expect(app.screen()).toContain("[x] Show labels");
+    await app.click(10, OPTION_Y);
+    expect(app.screen()).toContain("[ ] Show labels");
+    await app.click(10, 1); // outside the panel
+    await app.waitFor(() => !app.screen().includes("View settings"));
+    expect(app.screen()).not.toContain("DESCRIPTION"); // and it didn't open the issue underneath
+    expect(app.server.writes).toEqual([]);
+    expect(app.server.requests.filter((r) => r.query.includes("issueUpdate"))).toHaveLength(0);
+    app.unmount();
+  });
+
+  test("a settings file that can't be written shows a message, but the setting still applies", async () => {
+    // A FILE where the config folder should be, so creating the folder fails.
+    const blocker = join(configDir, "blocker");
+    writeFileSync(blocker, "x");
+    process.env.XDG_CONFIG_HOME = blocker;
+    const app = await startApp({ labelled: true });
+    await app.press("v", KEY.space, KEY.esc);
+    await app.waitFor(() => !app.screen().includes("View settings"));
+    expect(app.rowsOf().at(-1)).toContain("couldn't save view settings");
+    expect(app.rowsOf().at(-1)).toContain("labels off");
+    expect(app.screen()).not.toContain("● CPQ");
+    app.unmount();
+  });
+
+  test("a damaged settings file is ignored: the app starts with the defaults", async () => {
+    saveSettings({ showLabels: false }, join(configDir, "tangent"));
+    writeFileSync(settingsFile(), "{{{ not json");
+    const app = await startApp({ labelled: true });
+    expect(app.screen()).toContain("● CPQ");
     app.unmount();
   });
 });

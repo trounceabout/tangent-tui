@@ -18,6 +18,9 @@ import { WHEEL_LINES, useMouse, useMouseApi } from "./mouse-context.ts";
 import { itemAtLine, layoutItems, lineAtScreenRow } from "./list-layout.ts";
 import { isDryRun } from "./mutations.ts";
 import { openInBrowser } from "./open.ts";
+import { loadSettings, saveSettings, toggled } from "./settings.ts";
+import type { ViewSettings } from "./settings.ts";
+import { ViewSettingsScreen } from "./view-screen.tsx";
 import {
   MAX_QUERY_CHARS,
   NO_FILTERS,
@@ -43,14 +46,14 @@ type Item =
   | { key: string; kind: "group"; group: StatusGroup; height: number }
   | { key: string; kind: "issue"; group: StatusGroup; issue: Issue; height: number };
 
-function buildItems(groups: StatusGroup[], collapsed: Set<string>): Item[] {
+function buildItems(groups: StatusGroup[], collapsed: Set<string>, showLabels: boolean): Item[] {
   const items: Item[] = [];
   groups.forEach((group, index) => {
     // A header is 1 line, plus a blank line above it (except the very first).
     items.push({ key: `group:${group.name}`, kind: "group", group, height: index === 0 ? 1 : 2 });
     if (collapsed.has(group.name)) return; // folded: header only
     for (const issue of group.issues) {
-      items.push({ key: `issue:${issue.identifier}`, kind: "issue", group, issue, height: issueHeight(issue) });
+      items.push({ key: `issue:${issue.identifier}`, kind: "issue", group, issue, height: issueHeight(issue, showLabels) });
     }
   });
   return items;
@@ -95,6 +98,10 @@ export function App() {
   const [flash, setFlash] = useState<string | null>(null);
   // Whether the ? help panel is open over the current screen.
   const [helpOpen, setHelpOpen] = useState(false);
+  // The view settings (what the list shows), read from the settings file once at start,
+  // and whether their panel (v) is open over the list.
+  const [viewSettings, setViewSettings] = useState<ViewSettings>(() => loadSettings());
+  const [viewOpen, setViewOpen] = useState(false);
   // Mouse reporting: on or off in the terminal. (While it's on the terminal can't do its
   // normal text selection, so the `m` key switches it off.)
   const mouseApi = useMouseApi();
@@ -139,9 +146,11 @@ export function App() {
   const groups = useMemo(() => groupIssues(shownIssues), [shownIssues]);
   const cycles = useMemo(() => (issues ? cycleProgress(issues) : []), [issues]);
   // While filtering, ignore the folds so matches inside Done/Canceled aren't hidden.
+  // The label setting changes how tall the rows are, so it is an input here: the scroll
+  // math (offsets, total lines, clicks) all follows from these heights.
   const items = useMemo(
-    () => buildItems(groups, filtering ? NO_FOLDS : collapsed),
-    [groups, filtering, collapsed],
+    () => buildItems(groups, filtering ? NO_FOLDS : collapsed, viewSettings.showLabels),
+    [groups, filtering, collapsed, viewSettings.showLabels],
   );
   // Reuse Linear's own "completed" color for the filled part of the bars.
   const doneColor = issues?.find((i) => i.state.type === "completed")?.state.color ?? "#4cb782";
@@ -200,6 +209,15 @@ export function App() {
     setMouseOn(mouseApi.enabled());
   };
 
+  // Flip one view setting (from the v panel): apply it now, then remember it in the settings
+  // file. A failed save is shown in the footer; the setting still applies for this session.
+  const toggleViewSetting = (key: keyof ViewSettings) => {
+    const next = toggled(viewSettings, key);
+    setViewSettings(next);
+    const saveError = saveSettings(next);
+    if (saveError) setError(saveError);
+  };
+
   const handleKey = (input: string, key: Key) => {
     const page = Math.max(1, Math.floor(viewHeight / 2));
     if (input === "q") exit();
@@ -218,6 +236,8 @@ export function App() {
     else if (input === "/") setSearching(true);
     // ? opens the help panel (every key, on this screen).
     else if (input === "?") setHelpOpen(true);
+    // v opens the View settings panel (what the list shows).
+    else if (input === "v") setViewOpen(true);
     // t / p / L step the team, priority and label filters through their values
     // (All -> first -> second ... -> All). Functional updates, so quick presses add up.
     else if (input === "t" && issues) setFilters((f) => ({ ...f, team: nextTeam(issues, f.team) }));
@@ -249,7 +269,7 @@ export function App() {
     (input, key) => {
       for (const char of expandBurst(input)) handleKey(char, key);
     },
-    { isActive: detailIssue === null && !searching && editing === null && !helpOpen },
+    { isActive: detailIssue === null && !searching && editing === null && !helpOpen && !viewOpen },
   );
 
   // While the search bar is open, typed characters go INTO the query instead of
@@ -296,10 +316,12 @@ export function App() {
 
   // When the HIGHLIGHT moves (a key, a click, a fold), keep it in view. This is keyed on
   // the selection alone, on purpose: the mouse wheel can scroll the highlight out of view
-  // and nothing drags it back until you move the highlight again.
+  // and nothing drags it back until you move the highlight again. The one other trigger is
+  // the label setting: it changes the row heights, so the highlighted row could otherwise
+  // end up scrolled out of view.
   useEffect(() => {
     setScrollTop((t) => scrolledToShow(selIndex, Math.min(t, maxScrollTop)));
-  }, [selectedKey]);
+  }, [selectedKey, viewSettings.showLabels]);
   // A new search or filter starts again at the top.
   useEffect(() => {
     setScrollTop(0);
@@ -338,7 +360,7 @@ export function App() {
   useMouse((event) => {
     if (event.kind === "wheel") scrollBy(event.direction === "up" ? -WHEEL_LINES : WHEEL_LINES);
     else if (event.kind === "press" && event.button === "left") clickList(event.y);
-  }, detailIssue === null && editing === null && !helpOpen);
+  }, detailIssue === null && editing === null && !helpOpen && !viewOpen);
 
   const hasAbove = shownTop > 0;
   const hasBelow = shownTop < maxScrollTop;
@@ -379,6 +401,9 @@ export function App() {
   ) : helpOpen ? (
     // The help panel: the same kind of overlay, listing the keys of whichever screen is showing.
     <HelpScreen kind={detailShown ? "detail" : "list"} onClose={() => setHelpOpen(false)} />
+  ) : viewOpen ? (
+    // The View settings panel: another overlay, over the list.
+    <ViewSettingsScreen settings={viewSettings} onToggle={toggleViewSetting} onClose={() => setViewOpen(false)} />
   ) : null;
 
   const list = (
@@ -417,6 +442,7 @@ export function App() {
                     issue={item.issue}
                     selected={item.key === selectedItem?.key}
                     width={columns}
+                    showLabels={viewSettings.showLabels}
                   />
                 ),
               )}
@@ -461,6 +487,7 @@ export function App() {
           <Text wrap="truncate-end">
             {isDryRun() ? <Text color="cyan">DRY RUN  </Text> : null}
             {mouseApi.supported && !mouseOn ? <Text dimColor>mouse off  </Text> : null}
+            {!viewSettings.showLabels ? <Text dimColor>labels off  </Text> : null}
             {flash ? <Text color="green">{`✓ ${flash}  `}</Text> : null}
             {error ? <Text color="red">{`${error}  `}</Text> : null}
             <Text dimColor>

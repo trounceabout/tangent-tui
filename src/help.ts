@@ -63,6 +63,7 @@ const LIST_HELP: Section[] = [
     title: "App",
     entries: [
       ["?", "this help"],
+      ["v", "view settings"],
       ["q", "quit"],
     ],
   },
