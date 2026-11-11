@@ -153,15 +153,51 @@ describe("issueHeight matches what is actually drawn", () => {
     ["labels and due date", tall],
   ] as const;
 
-  for (const [name, issue] of cases) {
-    test(name, () => {
-      expect(heightOf(<IssueRow issue={issue} selected={false} width={80} />)).toBe(issueHeight(issue));
-    });
+  // Both view settings: the scroll math breaks if the height and the drawing ever disagree.
+  for (const showLabels of [true, false]) {
+    for (const [name, issue] of cases) {
+      test(`${name} (labels ${showLabels ? "shown" : "hidden"})`, () => {
+        expect(heightOf(<IssueRow issue={issue} selected={false} width={80} showLabels={showLabels} />)).toBe(
+          issueHeight(issue, showLabels),
+        );
+      });
+    }
   }
 
   test("1 line without details, 2 with", () => {
     expect(issueHeight(makeIssue())).toBe(1);
     expect(issueHeight(tall)).toBe(2);
+  });
+
+  test("with labels hidden, only a due date makes a second line", () => {
+    const labelsOnly = makeIssue({ labels: labels("CPQ"), dueDate: null });
+    const dueOnly = makeIssue({ labels: { nodes: [] }, dueDate: "2030-01-01" });
+    expect(issueHeight(labelsOnly)).toBe(2);
+    expect(issueHeight(labelsOnly, false)).toBe(1); // the row gets shorter
+    expect(issueHeight(dueOnly, false)).toBe(2); // the due date keeps its line
+    expect(issueHeight(tall, false)).toBe(2);
+  });
+});
+
+describe("IssueRow with labels hidden", () => {
+  test("no label names are drawn, but the due date stays on the right", () => {
+    const [first, second] = lines(<IssueRow issue={tall} selected={false} width={100} showLabels={false} />, 100);
+    expect(first).toContain("PD-3066");
+    expect(second).not.toContain("●");
+    expect(second).not.toContain("Feature");
+    expect(second).not.toMatch(/\+\d/); // and no "+N" count either
+    expect(second?.trimEnd().endsWith("due Jan 2")).toBe(true);
+  });
+
+  test("an issue with labels but no due date becomes a single line", () => {
+    const labelsOnly = makeIssue({ labels: labels("CPQ"), dueDate: null });
+    const out = lines(<IssueRow issue={labelsOnly} selected={false} width={60} showLabels={false} />, 60);
+    expect(out.filter((l) => l.trim() !== "")).toHaveLength(1);
+    expect(out.join("\n")).not.toContain("CPQ");
+  });
+
+  test("labels are shown by default (existing behaviour)", () => {
+    expect(lines(<IssueRow issue={tall} selected={false} width={100} />, 100)[1]).toContain("● Feature");
   });
 });
 

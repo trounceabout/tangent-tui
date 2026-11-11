@@ -131,6 +131,7 @@ tangent --version
 | `Esc` | Clear all filters |
 | `s` / `P` / `e` | Change the selected issue's status / priority / estimate (see below) |
 | `r` | Refresh now |
+| `v` | View settings: choose what the list shows (see below) |
 | `?` | Help: every key for the screen you're on (the footer only shows a few) |
 | `q` | Quit |
 
@@ -145,6 +146,16 @@ Press `/` and type. The list narrows as you type; `Enter` keeps the filter and r
 | `team:pd` (or `t:pd`) | Issues from that team |
 
 The `t`, `p` and `L` keys step through values (all → first → second → … → all). `p` means *at least this urgent*: Urgent, then High and above, then Medium and above. Issues with no priority never match a priority filter. Filters combine, and while any filter is on, folded groups (Done, Canceled) are opened so matches there aren't hidden. The cycle progress bars always count all your issues.
+
+### View settings
+
+Press `v` on the list to open a small panel of choices about **what you see**. `Space` or `Enter` flips the highlighted one, and it applies at once; `Esc` (or `v`, `q`) closes the panel. These only change how the list looks: nothing is sent to Linear.
+
+| Setting | Effect |
+|---|---|
+| Show labels | On (the default): each issue's labels are listed under its title. Off: labels are hidden, and rows without a due date shrink to one line, so more issues fit on screen. Due dates always stay. |
+
+When a setting is changed from its default the status line says so (for example `labels off`). Your choices are remembered between launches in `~/.config/tangent/settings.json` (or `$XDG_CONFIG_HOME/tangent/settings.json`). The file holds view preferences only, never your API key. You can delete it to go back to the defaults, and an unreadable or hand-edited file is ignored rather than breaking the app.
 
 ### Changing an issue
 
@@ -186,6 +197,7 @@ The mouse works alongside the keys.
 | List: click an issue | Open its detail screen |
 | List: click a status header | Fold / unfold the group |
 | List, detail screen, help: wheel | Scroll (the list scrolls without moving the highlight) |
+| View settings panel: click an option | Flip it. Click outside the panel to close it |
 | Edit panel: click outside it | Cancel |
 | Edit panel: click an option | Go to the confirm screen (a click never saves; only `Enter` on the confirm screen does) |
 | `m` | Mouse on / off |

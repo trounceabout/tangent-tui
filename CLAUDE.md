@@ -30,6 +30,7 @@ A full-screen terminal app (Bun + TypeScript + Ink 8) showing my Linear issues f
 - `src/help.ts` the content of the `?` help: which keys do what on the board and on the detail screen (pure data). `src/help-screen.tsx` the help panel (`HelpView`, `HelpScreen`), which scrolls when the pane is short.
 - `src/mouse.ts` MOUSE input: `parseMouse()` (SGR reports) and `createMouseInput()`, a filter stream between the real stdin and Ink, plus on/off control of the terminal's mouse mode. `src/mouse-context.ts` hands events to components (`useMouse`, `useMouseApi`). `src/list-layout.ts` pure arithmetic for the list: item offsets and which item a screen row is on (clicks).
 - `src/env.ts` the environment switches (dry run, mouse off). Each has a `TANGENT_*` name plus two older ones (`TERMINAL_VELOCITY_*`, `LINEAR_TUI_*`); dry run is ON if ANY of them says `1`.
+- `src/settings.ts` VIEW SETTINGS data: the `ViewSettings` type, defaults, `VIEW_OPTIONS` (what the panel lists), `parseSettings` (tolerant), `loadSettings`/`saveSettings` (the one place the app writes to disk). `src/view-screen.tsx` the `v` panel (`ViewSettingsView` props only, `ViewSettingsScreen` stateful). See "View settings" below.
 - `src/keys.ts` `expandBurst()`: see the input gotcha below.
 - `src/theme.ts` the few colors Linear's API doesn't provide.
 - `src/open.ts` opens links with macOS `open` (https only).
@@ -63,6 +64,17 @@ This is the only part of the app that changes shared company data, so treat it a
 - Finishing statuses (completed, canceled, duplicate) get an extra warning: some teams need a validation comment before work is called done.
 - The edit screen sends nothing until Enter on the CONFIRM screen. The save is guarded three ways (the stage check in `handleKey`, the stage check in `save()`, and `savingRef`), so a second Enter can't send a second write. These overlap on purpose, so removing one alone changes nothing (an "equivalent mutant"): to test them, remove all three.
 - When you manually try the edit flow in a real pane, ALWAYS start it with `TANGENT_DRY_RUN=1` and check the `DRY RUN` banner is on screen before pressing Enter on a confirm screen.
+
+## View settings
+
+What the user chooses to SEE (today: `showLabels`). Nothing here touches Linear.
+
+- Opened with `v` on the list (not on the detail screen). Space/Enter flips the highlighted option and it applies and saves immediately. The status line shows a badge (`labels off`) only when a setting is off its default, like `mouse off`.
+- Saved to `$XDG_CONFIG_HOME/tangent/settings.json` (else `~/.config/tangent/settings.json`). **View preferences only: never the API key or any Linear data.** Reading never throws (a missing, corrupt or wrong-typed file means defaults, field by field); a failed save shows `couldn't save view settings` in the footer and the setting still applies for the session.
+- **To add a setting:** a field in `ViewSettings`, its default, a line in `parseSettings`, a row in `VIEW_OPTIONS`, then use it where it's drawn. Add tests next to the existing ones.
+- **Row height depends on it.** `issueHeight(issue, showLabels)` and `IssueRow`'s `showLabels` must agree (hidden labels are treated as an empty label list, so a due date still gets the second line). `buildItems` takes it, and the scroll effect re-runs when it changes, because turning labels ON makes rows taller and could push the highlight out of view. A test guards each of these.
+- **A toggle takes ONE exact press.** `expandBurst` repeats Space, so the panel accepts Space/Enter only as a single key (a held key or paste of `"   "` is ignored) and uses `expandBurst` for cursor movement only.
+- **Tests must never touch the real settings file.** `app.test.tsx` points `XDG_CONFIG_HOME` at a temp folder in `beforeEach`; `settings.test.ts` passes a temp `dir`. Any new test file that mounts `<App />` must do the same, or it will read (and could write) the real `~/.config/tangent`.
 
 ## Mouse
 
