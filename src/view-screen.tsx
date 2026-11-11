@@ -32,6 +32,15 @@ export function ViewSettingsView({
   width: number;
   height: number;
 }) {
+  // In a pane too short for the whole panel (header + options + footer) the options would be
+  // clipped away. Say so, instead of showing an empty panel that still reacts to keys.
+  if (height < viewHeight(VIEW_OPTIONS.length)) {
+    return (
+      <Box height={height} width={width}>
+        <Text wrap="truncate-end">Too small: esc closes</Text>
+      </Box>
+    );
+  }
   const hint = `${VIEW_OPTIONS.length > 1 ? "↑↓ move  " : ""}space toggle  esc close`;
   return (
     <Box flexDirection="column" height={height} width={width}>
@@ -72,9 +81,11 @@ export function ViewSettingsScreen({
 
   // Relative moves use the functional form, so quick key presses add up.
   const move = (delta: number) => setCursor((c) => Math.max(0, Math.min(VIEW_OPTIONS.length - 1, c + delta)));
+  // Does the whole panel fit? If not it only shows "Too small", so nothing may be toggled.
+  const fits = geometry.contentHeight >= viewHeight(VIEW_OPTIONS.length);
   const toggleAt = (index: number) => {
     const option = VIEW_OPTIONS[index];
-    if (option) onToggle(option.key);
+    if (fits && option) onToggle(option.key);
   };
 
   useInput((input, key) => {

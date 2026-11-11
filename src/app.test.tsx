@@ -157,11 +157,11 @@ afterEach(() => {
 });
 
 // Start the app against the fake Linear and wait for the first load.
-async function startApp({ extraIssues = 0, labelled = false } = {}) {
+async function startApp({ extraIssues = 0, labelled = false, rows = ROWS } = {}) {
   const linear = fakeLinear(extraIssues, labelled);
   restoreFetch = mockFetch(linear.respond);
   // mouse: true gives the app the real mouse pipeline (the filter and the context).
-  const terminal = mountTerminal(<App />, { columns: COLUMNS, rows: ROWS, mouse: true });
+  const terminal = mountTerminal(<App />, { columns: COLUMNS, rows, mouse: true });
   await terminal.waitForText("PD-7"); // the first load has finished
   const rowsOf = () => terminal.screen().split("\n");
   const issueQueries = () => linear.server.requests.filter((r) => r.query.includes("MyCycleIssues")).length;
@@ -884,6 +884,33 @@ describe("view settings (the v panel)", () => {
     await app.press("v", KEY.space, KEY.esc);
     expect(app.screen()).toContain("Loading from Linear"); // the failed save must not hide it
     await app.waitForText("PD-7");
+    app.unmount();
+  });
+
+  test("in a pane too short to show the option, the panel says so and nothing can be toggled", async () => {
+    // 9 rows: the panel is capped at rows - 2, which leaves no room for its option line.
+    const app = await startApp({ labelled: true, rows: 9 });
+    await app.press("v");
+    expect(app.screen()).toContain("Too small");
+    expect(app.screen()).not.toContain("Show labels");
+    await app.press(KEY.space, KEY.enter); // invisible option: these must not flip it
+    await app.click(10, 4);
+    await app.click(10, 5);
+    await app.press(KEY.esc);
+    await app.waitFor(() => !app.screen().includes("Too small"));
+    expect(app.screen()).toContain("● CPQ"); // labels are still shown
+    expect(app.screen()).not.toContain("labels off");
+    expect(() => readFileSync(settingsFile(), "utf8")).toThrow(); // and nothing was saved
+    app.unmount();
+  });
+
+  test("one row taller (10 rows) the option fits and works", async () => {
+    const app = await startApp({ labelled: true, rows: 10 });
+    await app.press("v");
+    expect(app.screen()).toContain("[x] Show labels");
+    expect(app.screen()).not.toContain("Too small");
+    await app.press(KEY.space);
+    expect(app.screen()).toContain("[ ] Show labels");
     app.unmount();
   });
 
