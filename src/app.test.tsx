@@ -14,7 +14,7 @@ import { helpLines } from "./help.ts";
 import { panelGeometry } from "./panel.tsx";
 import { saveSettings } from "./settings.ts";
 import { ESC, mockFetch } from "./testing.ts";
-import { viewHeight } from "./view-screen.tsx";
+import { viewPanelHeight } from "./view-screen.tsx";
 import type { SeenRequest } from "./testing.ts";
 import { KEY, mountTerminal } from "./testing-terminal.ts";
 
@@ -723,7 +723,7 @@ describe("the mouse in the edit panel (a click never saves)", () => {
 describe("view settings (the v panel)", () => {
   const BODY_TOP = 4; // the list starts on screen row 4 (rows are counted from 0)
   // Where the panel's single option is drawn: below its border (1) and header (3).
-  const panel = panelGeometry(COLUMNS, ROWS, viewHeight(1));
+  const panel = panelGeometry(COLUMNS, ROWS, viewPanelHeight(1));
   const OPTION_Y = panel.top + 1 + 3;
   const settingsFile = () => join(configDir, "tangent", "settings.json");
 
@@ -911,6 +911,19 @@ describe("view settings (the v panel)", () => {
     expect(app.screen()).not.toContain("Too small");
     await app.press(KEY.space);
     expect(app.screen()).toContain("[ ] Show labels");
+    app.unmount();
+  });
+
+  test("two toggles in the same instant both count (the second starts from the first's result)", async () => {
+    const app = await startApp({ labelled: true });
+    await app.press("v");
+    // Two left-button presses on the option, delivered as ONE chunk so both are handled before
+    // the screen redraws. If each toggle starts from the settings it saw at render time, the
+    // second flips the same old value and the pair cancels to a single flip.
+    const press = `${ESC}[<0;11;${OPTION_Y + 1}M`;
+    await app.press(`${press}${press}`);
+    expect(app.screen()).toContain("[x] Show labels"); // flipped off, then on again
+    expect(JSON.parse(readFileSync(settingsFile(), "utf8"))).toEqual({ showLabels: true });
     app.unmount();
   });
 
