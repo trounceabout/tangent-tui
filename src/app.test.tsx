@@ -852,6 +852,41 @@ describe("view settings (the v panel)", () => {
     app.unmount();
   });
 
+  test("a failed save's message survives a successful reload, and goes away once a save works", async () => {
+    const blocker = join(configDir, "blocker");
+    writeFileSync(blocker, "x");
+    process.env.XDG_CONFIG_HOME = blocker; // saving fails
+    const app = await startApp({ labelled: true });
+    await app.press("v", KEY.space, KEY.esc);
+    await app.waitFor(() => !app.screen().includes("View settings"));
+    expect(app.rowsOf().at(-1)).toContain("couldn't save view settings");
+
+    const queriesBefore = app.issueQueries();
+    await app.press("r"); // reload: it succeeds, which used to wipe the message
+    await app.waitFor(() => app.issueQueries() > queriesBefore);
+    await app.waitFor(() => app.rowsOf().at(-1)?.includes("updated") ?? false);
+    expect(app.rowsOf().at(-1)).toContain("couldn't save view settings"); // still unsaved, still said
+
+    process.env.XDG_CONFIG_HOME = configDir; // saving works again
+    await app.press("v", KEY.space, KEY.esc); // flips labels back on, and this save succeeds
+    await app.waitFor(() => !app.screen().includes("View settings"));
+    expect(app.rowsOf().at(-1)).not.toContain("couldn't save view settings");
+    app.unmount();
+  });
+
+  test("using the panel before the first load finishes doesn't blank the loading text", async () => {
+    const linear = fakeLinear(0, true);
+    restoreFetch = mockFetch(linear.respond, { delayMs: 400 }); // a slow first load
+    process.env.XDG_CONFIG_HOME = join(configDir, "blocker");
+    writeFileSync(join(configDir, "blocker"), "x"); // saving fails
+    const app = mountTerminal(<App />, { columns: COLUMNS, rows: ROWS, mouse: true });
+    await app.waitForText("Loading from Linear");
+    await app.press("v", KEY.space, KEY.esc);
+    expect(app.screen()).toContain("Loading from Linear"); // the failed save must not hide it
+    await app.waitForText("PD-7");
+    app.unmount();
+  });
+
   test("a damaged settings file is ignored: the app starts with the defaults", async () => {
     saveSettings({ showLabels: false }, join(configDir, "tangent"));
     writeFileSync(settingsFile(), "{{{ not json");

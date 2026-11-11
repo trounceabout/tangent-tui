@@ -102,6 +102,10 @@ export function App() {
   // and whether their panel (v) is open over the list.
   const [viewSettings, setViewSettings] = useState<ViewSettings>(() => loadSettings());
   const [viewOpen, setViewOpen] = useState(false);
+  // Why the last settings save failed, or null. Separate from `error` (which belongs to the
+  // Linear fetch): a successful reload clears `error`, and must not hide a save that is still
+  // failing. It clears when a later save works.
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   // Mouse reporting: on or off in the terminal. (While it's on the terminal can't do its
   // normal text selection, so the `m` key switches it off.)
   const mouseApi = useMouseApi();
@@ -214,8 +218,7 @@ export function App() {
   const toggleViewSetting = (key: keyof ViewSettings) => {
     const next = toggled(viewSettings, key);
     setViewSettings(next);
-    const saveError = saveSettings(next);
-    if (saveError) setError(saveError);
+    setSettingsError(saveSettings(next)); // null on success, so a good save clears an old message
   };
 
   const handleKey = (input: string, key: Key) => {
@@ -490,6 +493,7 @@ export function App() {
             {!viewSettings.showLabels ? <Text dimColor>labels off  </Text> : null}
             {flash ? <Text color="green">{`✓ ${flash}  `}</Text> : null}
             {error ? <Text color="red">{`${error}  `}</Text> : null}
+            {settingsError ? <Text color="red">{`${settingsError}  `}</Text> : null}
             <Text dimColor>
               {`${hasAbove ? "▲ " : ""}${hasBelow ? "▼ " : ""}${refreshing ? "refreshing…" : time ? `updated ${time}` : ""}`}
             </Text>
