@@ -70,8 +70,11 @@ export async function runLogin(deps: LoginDeps): Promise<LoginResult> {
     print("");
     // Linear's page picks the workspace the browser used last. Its only switcher is a small
     // dropdown, so say where it is BEFORE the person approves.
-    print("Before you approve, check the workspace name at the top left of the page.");
-    print("Wrong one? Use the dropdown there to switch, then approve.");
+    // Short lines (under 50 columns) so they don't wrap awkwardly in a narrow pane.
+    print("Before you approve, check the workspace name");
+    print("shown at the top left of the page.");
+    print("Wrong one? Use the dropdown there to switch,");
+    print("then approve.");
     print("");
     print("If the browser didn't open, visit this address:");
     print(loginUrl);
@@ -119,7 +122,8 @@ export async function runLogin(deps: LoginDeps): Promise<LoginResult> {
 
   print("");
   print(workspace ? `Logged in to ${workspace}.` : "Logged in. (Couldn't read the workspace name.)");
-  print("To use a different workspace, run `tangent login` again and pick it in the");
+  print("To use a different workspace, run");
+  print("`tangent login` again and pick it in the");
   print("dropdown at the top left of Linear's page.");
   return { workspace };
 }

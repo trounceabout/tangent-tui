@@ -122,18 +122,29 @@ describe("a successful login", () => {
   test("tells the person how to switch workspaces, before and after", async () => {
     const run = setup();
     await runLogin(run.deps);
-    const text = run.lines.join("\n");
-    expect(text).toContain("check the workspace name at the top left");
+    // The messages are split over short lines, so compare them as one run of text.
+    const text = run.lines.join(" ");
+    expect(text).toContain("check the workspace name shown at the top left");
     expect(text).toContain("dropdown there to switch");
     expect(text).toContain("run `tangent login` again");
+  });
+
+  test("keeps every line short enough for a narrow pane (the address excepted)", async () => {
+    // A 64-column pane wrapped the longer wording mid-sentence on a real run.
+    const run = setup();
+    await runLogin(run.deps);
+    for (const line of run.lines) {
+      if (line.startsWith("https://")) continue; // the address can't be shortened
+      expect(line.length).toBeLessThanOrEqual(50);
+    }
   });
 
   test("shows the workspace hint BEFORE the browser opens and saves BEFORE saying logged in", async () => {
     const run = setup();
     await runLogin(run.deps);
     const at = (needle: string) => run.events.findIndex((event) => event.includes(needle));
-    expect(at("top left of the page")).toBeGreaterThanOrEqual(0);
-    expect(at("top left of the page")).toBeLessThan(at("open"));
+    expect(at("Before you approve")).toBeGreaterThanOrEqual(0);
+    expect(at("Before you approve")).toBeLessThan(at("open"));
     expect(at("save")).toBeLessThan(at("Logged in to"));
   });
 
