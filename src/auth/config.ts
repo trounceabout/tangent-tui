@@ -15,8 +15,10 @@ export const GRAPHQL_URL = "https://api.linear.app/graphql";
 
 // What Tangent asks to do. `read` is the default and always present; `issues:create` is what
 // Linear describes as "create and update issues" (all Tangent changes: status, priority,
-// estimate). Narrower than `write`, so a leaked token can do less. PROVISIONAL: confirm with a
-// real update on a throwaway issue (issue #66, question 3) before relying on it.
+// estimate). Narrower than `write`, so a leaked token can do less. CONFIRMED (issue #66,
+// question 3): a real update of status, priority and estimate on a throwaway issue worked with
+// only these two scopes, so the broader `write` is not needed. Changing this list makes every
+// existing user log in again, so don't widen it lightly.
 export const SCOPES = ["read", "issues:create"] as const;
 
 // Linear matches redirect addresses EXACTLY, port included (found in issue #66: an
