@@ -15,7 +15,7 @@ import { PANEL_ACCENT } from "./theme.ts";
 
 // How tall the panel is: header, one line per option, footer. (A fixed number of options,
 // so there is nothing to scroll.)
-export const viewHeight = (optionCount: number): number => HEADER_HEIGHT + optionCount + FOOTER_HEIGHT;
+export const viewPanelHeight = (optionCount: number): number => HEADER_HEIGHT + optionCount + FOOTER_HEIGHT;
 
 // ---------------------------------------------------------------------------
 // What it looks like. Every option is exactly ONE line (it truncates rather than wraps),
@@ -34,7 +34,7 @@ export function ViewSettingsView({
 }) {
   // In a pane too short for the whole panel (header + options + footer) the options would be
   // clipped away. Say so, instead of showing an empty panel that still reacts to keys.
-  if (height < viewHeight(VIEW_OPTIONS.length)) {
+  if (height < viewPanelHeight(VIEW_OPTIONS.length)) {
     return (
       <Box height={height} width={width}>
         <Text wrap="truncate-end">Too small: esc closes</Text>
@@ -77,12 +77,12 @@ export function ViewSettingsScreen({
 }) {
   const { columns, rows } = useWindowSize();
   const [cursor, setCursor] = useState(0);
-  const geometry = panelGeometry(columns, rows, viewHeight(VIEW_OPTIONS.length));
+  const geometry = panelGeometry(columns, rows, viewPanelHeight(VIEW_OPTIONS.length));
 
   // Relative moves use the functional form, so quick key presses add up.
   const move = (delta: number) => setCursor((c) => Math.max(0, Math.min(VIEW_OPTIONS.length - 1, c + delta)));
   // Does the whole panel fit? If not it only shows "Too small", so nothing may be toggled.
-  const fits = geometry.contentHeight >= viewHeight(VIEW_OPTIONS.length);
+  const fits = geometry.contentHeight >= viewPanelHeight(VIEW_OPTIONS.length);
   const toggleAt = (index: number) => {
     const option = VIEW_OPTIONS[index];
     if (fits && option) onToggle(option.key);

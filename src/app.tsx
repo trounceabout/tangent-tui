@@ -101,6 +101,7 @@ export function App() {
   // The view settings (what the list shows), read from the settings file once at start,
   // and whether their panel (v) is open over the list.
   const [viewSettings, setViewSettings] = useState<ViewSettings>(() => loadSettings());
+  const viewSettingsRef = useRef(viewSettings); // always the latest settings (see toggleViewSetting)
   const [viewOpen, setViewOpen] = useState(false);
   // Why the last settings save failed, or null. Separate from `error` (which belongs to the
   // Linear fetch): a successful reload clears `error`, and must not hide a save that is still
@@ -216,7 +217,11 @@ export function App() {
   // Flip one view setting (from the v panel): apply it now, then remember it in the settings
   // file. A failed save is shown in the footer; the setting still applies for this session.
   const toggleViewSetting = (key: keyof ViewSettings) => {
-    const next = toggled(viewSettings, key);
+    // Start from the ref, not from `viewSettings`: that is the value from the last render, so
+    // two toggles handled before the next render would both start from the same old value and
+    // cancel into one flip (the same reason `cursorRef` exists).
+    const next = toggled(viewSettingsRef.current, key);
+    viewSettingsRef.current = next;
     setViewSettings(next);
     setSettingsError(saveSettings(next)); // null on success, so a good save clears an old message
   };
