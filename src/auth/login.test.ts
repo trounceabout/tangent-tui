@@ -30,6 +30,8 @@ function fakeLinear(
     graphqlThrows?: boolean;
     tokenHangs?: boolean; // never answers, but gives up when the request's time limit fires
     graphqlHangs?: boolean;
+    tokenDelayMs?: number; // answers, but slowly
+    graphqlDelayMs?: number;
   } = {},
 ) {
   const calls: Call[] = [];
@@ -43,11 +45,13 @@ function fakeLinear(
         init?.signal?.addEventListener("abort", () => reject(init.signal?.reason ?? new Error("aborted")));
       });
     if (url === TOKEN_URL) {
+      if (options.tokenDelayMs) await new Promise((resolve) => setTimeout(resolve, options.tokenDelayMs));
       if (options.tokenHangs) return stall();
       if (options.tokenThrows) throw new Error("network down");
       return options.token ? options.token() : json(goodTokenReply);
     }
     if (url === GRAPHQL_URL) {
+      if (options.graphqlDelayMs) await new Promise((resolve) => setTimeout(resolve, options.graphqlDelayMs));
       if (options.graphqlHangs) return stall();
       if (options.graphqlThrows) throw new Error("network down");
       return options.graphql ? options.graphql() : json({ data: { organization: { name: "Acme Corp" } } });
@@ -271,6 +275,14 @@ describe("the requests to Linear can't stall for ever", () => {
     expect(Date.now() - started).toBeLessThan(2000);
     expect(run.saved).toHaveLength(1);
     expect(run.lines).toContain("Logged in. (Couldn't read the workspace name.)");
+  });
+
+  test("the DEFAULT limits leave room for a slow but working Linear (they are not a few milliseconds)", async () => {
+    // With no custom limits, answers that take a moment must still be accepted. A default of a few
+    // milliseconds would abort both requests and the login would fail or lose the workspace name.
+    const run = setup({}, fakeLinear({ tokenDelayMs: 150, graphqlDelayMs: 150 }));
+    expect(await runLogin(run.deps)).toEqual({ workspace: "Acme Corp" });
+    expect(run.saved).toHaveLength(1);
   });
 
   test("a code exchange that stalls is given up on with a clear message, and nothing is saved", async () => {
