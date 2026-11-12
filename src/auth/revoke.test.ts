@@ -4,6 +4,23 @@ import { describe, expect, test } from "bun:test";
 import { GRAPHQL_URL, REVOKE_URL } from "./config.ts";
 import { buildRevokeRequest, probeAccessToken, revokeToken } from "./revoke.ts";
 
+// A server that is slow or stalled. Like a real `fetch`, it gives up when the request's time limit fires.
+function slowFetch(options: { hang?: boolean; delayMs?: number; status?: number } = {}) {
+  const calls: { url: string; init: RequestInit }[] = [];
+  const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(input), init: init ?? {} });
+    await new Promise<void>((resolve, reject) => {
+      const timer = options.hang ? undefined : setTimeout(resolve, options.delayMs ?? 0);
+      init?.signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(init.signal?.reason ?? new Error("aborted"));
+      });
+    });
+    return new Response("", { status: options.status ?? 200 });
+  }) as unknown as typeof fetch;
+  return { fetchFn, calls };
+}
+
 // A fake fetch that answers with a fixed status and records what it was asked.
 function fakeFetch(status: number, body = "") {
   const calls: { url: string; init: RequestInit }[] = [];
@@ -122,5 +139,38 @@ describe("probeAccessToken: does the API still accept the token?", () => {
     expect(body).toContain("viewer"); // the smallest read there is...
     expect(body).not.toContain("mutation"); // ...and never a write
     expect(body).not.toContain("SECRET"); // the token goes in the header, not the query
+  });
+});
+
+describe("the requests can't stall for ever (logout makes them while holding the refresh lock)", () => {
+  test("both carry a time limit", async () => {
+    const revoke = fakeFetch(200);
+    await revokeToken(revoke.fetchFn, "tok", "access_token");
+    expect(revoke.calls[0]?.init.signal).toBeInstanceOf(AbortSignal);
+    const probe = fakeFetch(401);
+    await probeAccessToken(probe.fetchFn, "tok");
+    expect(probe.calls[0]?.init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("a stalled revoke is 'failed' (it may still be live), quickly, not a hang", async () => {
+    const started = Date.now();
+    expect(await revokeToken(slowFetch({ hang: true }).fetchFn, "tok", "refresh_token", 40)).toBe("failed");
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  test("a stalled probe is 'unknown', quickly, not a hang", async () => {
+    const started = Date.now();
+    expect(await probeAccessToken(slowFetch({ hang: true }).fetchFn, "tok", 40)).toBe("unknown");
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  test("the DEFAULT limits leave room for a slow but working Linear (they are not a few milliseconds)", async () => {
+    expect(await revokeToken(slowFetch({ delayMs: 150, status: 200 }).fetchFn, "tok", "access_token")).toBe("revoked");
+    expect(await probeAccessToken(slowFetch({ delayMs: 150, status: 401 }).fetchFn, "tok")).toBe("rejected");
+  });
+
+  test("an answer that arrives before the limit still counts", async () => {
+    expect(await revokeToken(slowFetch({ delayMs: 20, status: 200 }).fetchFn, "tok", "access_token", 2000)).toBe("revoked");
+    expect(await probeAccessToken(slowFetch({ delayMs: 20, status: 401 }).fetchFn, "tok", 2000)).toBe("rejected");
   });
 });
