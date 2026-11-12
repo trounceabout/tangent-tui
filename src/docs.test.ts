@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { REDIRECT_PORTS, SCOPES } from "./auth/config.ts";
 import { TOKENS_SECRET_NAME } from "./auth/token-store.ts";
 import { helpText } from "./cli.ts";
+import { API_KEY_ITEM } from "./linear.ts";
+import { ACCOUNT } from "./platform/secret-store.ts";
 
 const root = join(import.meta.dir, "..");
 const read = (file: string) => Bun.file(join(root, file)).text();
@@ -82,7 +84,9 @@ describe("README.md", () => {
   test("Uninstall says to log out first, and how to clean up by hand", async () => {
     const readme = await read("README.md");
     expect(readme).toContain("Log out first");
-    expect(readme).toContain(`security delete-generic-password -s ${TOKENS_SECRET_NAME} -a tangent`);
+    // Built from the real constants, so changing the item or account name breaks this test (not the advice).
+    expect(readme).toContain(`security delete-generic-password -s ${TOKENS_SECRET_NAME} -a ${ACCOUNT}`);
+    expect(readme).toContain(`security delete-generic-password -s ${API_KEY_ITEM}`);
     expect(readme).toContain("Authorized applications");
   });
 });
@@ -103,7 +107,7 @@ describe("SECURITY.md", () => {
   test("names where the login is kept, and the API key's vault item", async () => {
     const security = await read("SECURITY.md");
     expect(security).toContain(TOKENS_SECRET_NAME);
-    expect(security).toContain("linear-api-key");
+    expect(security).toContain(API_KEY_ITEM);
     expect(security).toContain("LINEAR_API_KEY");
   });
 
@@ -120,5 +124,29 @@ describe("SECURITY.md", () => {
 
   test("no longer describes the API key as the way Tangent logs in", async () => {
     expect(await read("SECURITY.md")).not.toContain("talks to Linear with **your personal API key**");
+  });
+});
+
+describe("switching workspace and ending logins", () => {
+  test("the README says logging in again replaces the old login and ends it at Linear, in the Switching paragraph", async () => {
+    const readme = await read("README.md");
+    const switching = readme.split("\n").find((line) => line.startsWith("**Switching workspace:**")) ?? "";
+    expect(switching).toContain("the old one is ended at Linear");
+    expect(switching).toContain("Your previous login was ended.");
+  });
+
+  test("SECURITY.md says logging in again ends the previous login, and what happens if Linear can't be reached", async () => {
+    const security = await read("SECURITY.md");
+    const ending = security.split("\n").find((line) => line.startsWith("- **Ending it.**")) ?? "";
+    expect(ending).toContain("Logging in again");
+    expect(ending).toContain("can't reach Linear");
+    expect(ending).toContain("by hand");
+  });
+
+  test("SECURITY.md promises that nothing secret is shown, in its own bullet", async () => {
+    const security = await read("SECURITY.md");
+    const bullet = security.split("\n").find((line) => line.startsWith("- **Nothing secret is ever shown.**")) ?? "";
+    expect(bullet).toContain("fixed message");
+    expect(bullet).toContain("does not repeat it");
   });
 });

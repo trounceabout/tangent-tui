@@ -127,7 +127,7 @@ Your browser opens on a Linear page asking you to authorize **Tangent**. Before 
 
 When you approve, the terminal says `Logged in to <workspace>.` and the login is saved in your macOS Keychain. It renews itself, so you shouldn't need to log in again.
 
-**Switching workspace:** run `tangent login` again and pick the other workspace in that dropdown. A login belongs to one workspace.
+**Switching workspace:** run `tangent login` again and pick the other workspace in that dropdown. A login belongs to one workspace, and Tangent keeps one login at a time: the new login replaces the old one, and the old one is ended at Linear for you (it says "Your previous login was ended."), so nothing is left behind.
 
 **Logging out:** `tangent logout` ends the login at Linear and removes it from this computer. If it can't reach Linear it still removes it here, says so, and tells you where to end it by hand (Linear → Settings → Security & access → Authorized applications).
 
