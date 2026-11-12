@@ -5,7 +5,7 @@
 // "SECRET" so a leak into anything printed is easy to spot.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GRAPHQL_URL, REVOKE_URL } from "./config.ts";
@@ -37,6 +37,11 @@ function setup(
     probeAnswer?: number | "network" | readonly (number | "network")[];
     lockThrows?: string;
     env?: Record<string, string | undefined>;
+    // The saved personal API key (null/absent: none), and whether the Keychain can't be read for it.
+    savedApiKey?: string | null;
+    apiKeyUnreadable?: boolean;
+    // How long (fake) time each check of the API takes, to prove the wait is bounded by the clock.
+    probeTakesMs?: number;
   } = {},
 ) {
   const events: string[] = [];
@@ -45,6 +50,7 @@ function setup(
   const revokes: Revoke[] = [];
   const probes: { authorization: string; query: string }[] = [];
   const sleeps: number[] = [];
+  const clock = { t: 0 }; // a fake clock: it moves only when a (fake) sleep or a slow check says so
   const probeQueue: (number | "network")[] | undefined = Array.isArray(options.probeAnswer) ? [...options.probeAnswer] : undefined;
   let saved: Tokens | null = options.tokens === undefined ? TOKENS : options.tokens;
 
@@ -67,6 +73,7 @@ function setup(
   const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
     if (String(input) === GRAPHQL_URL) {
       events.push("probe");
+      clock.t += options.probeTakesMs ?? 0;
       const headers = (init?.headers ?? {}) as Record<string, string>;
       probes.push({ authorization: headers.Authorization ?? "", query: String(init?.body) });
       const probeAnswer = probeQueue
@@ -108,10 +115,16 @@ function setup(
     },
     fetchFn,
     env: options.env ?? {},
+    readApiKey: async () => {
+      if (options.apiKeyUnreadable) throw new Error("Couldn't read the saved API key from the Keychain.");
+      return options.savedApiKey ?? null;
+    },
+    now: () => clock.t,
     // A fake clock: waiting is recorded, never real.
     sleep: async (ms) => {
       events.push("sleep");
       sleeps.push(ms);
+      clock.t += ms;
     },
   };
   return { deps, events, out, errors, revokes, probes, sleeps, saved: () => saved };
@@ -370,6 +383,96 @@ describe("when something goes wrong before anything is changed", () => {
   });
 });
 
+describe("a saved API key (it is used before LINEAR_API_KEY, so a logout that leaves it working should say so)", () => {
+  test("a successful logout mentions it", async () => {
+    const run = setup({ savedApiKey: "lin_api_saved" });
+    expect(await runLogoutCommand(run.deps)).toBe(0);
+    expect(run.out.join(" ")).toContain("A saved API key is in your Keychain, so Tangent will use that.");
+  });
+
+  test("so does 'You weren't logged in'", async () => {
+    const run = setup({ tokens: null, savedApiKey: "lin_api_saved" });
+    await runLogoutCommand(run.deps);
+    expect(run.out.join(" ")).toContain("A saved API key is in your Keychain");
+  });
+
+  test("so does a system that can't save a login", async () => {
+    const run = setup({ createStoreThrows: true, savedApiKey: "lin_api_saved" });
+    expect(await runLogoutCommand(run.deps)).toBe(0);
+    expect(run.out.join(" ")).toContain("A saved API key is in your Keychain");
+  });
+
+  test("with BOTH a saved key and LINEAR_API_KEY, only the saved key is named (it is the one used)", async () => {
+    const run = setup({ savedApiKey: "lin_api_saved", env: { LINEAR_API_KEY: "lin_api_env" } });
+    await runLogoutCommand(run.deps);
+    expect(run.out.join(" ")).toContain("saved API key");
+    expect(run.out.join(" ")).not.toContain("LINEAR_API_KEY");
+  });
+
+  test("an unreadable Keychain for the key just means nothing is said (the logout itself already worked)", async () => {
+    const run = setup({ apiKeyUnreadable: true, env: { LINEAR_API_KEY: "lin_api_env" } });
+    expect(await runLogoutCommand(run.deps)).toBe(0);
+    expect(run.out.join(" ")).toContain("LINEAR_API_KEY is set"); // falls through to the next credential
+    expect(run.out.join(" ")).not.toContain("saved API key");
+  });
+
+  test("it is only mentioned when the logout succeeded (not alongside a failure)", async () => {
+    const run = setup({ savedApiKey: "lin_api_saved", refreshAnswer: "network" });
+    await runLogoutCommand(run.deps);
+    expect(run.out.join(" ")).not.toContain("saved API key");
+  });
+
+  test("the key itself is never printed", async () => {
+    const run = setup({ savedApiKey: "lin_api_SECRETKEY" });
+    await runLogoutCommand(run.deps);
+    expect(everything(run)).not.toContain("SECRETKEY");
+  });
+});
+
+describe("the wait for Linear is bounded by the CLOCK, not by counting waits", () => {
+  test("slow checks use up the window sooner: three checks of 3 seconds each, and then it stops", async () => {
+    // Each check takes 3 s. Check 1 (t=3 s) sees 'accepted'; wait 0.5 s; check 2 (t=6.5 s); the window
+    // started at t=3 s, so 3.5 s have passed: wait again; check 3 (t=10 s); now 7 s... still under 8
+    // s, so one more wait and check; the point is that it ends by the CLOCK long before 17 checks.
+    const run = setup({ probeAnswer: 200, probeTakesMs: 3000 });
+    expect(await runLogoutCommand(run.deps)).toBe(1);
+    expect(run.probes.length).toBeLessThan(6); // 17 checks would be the old count-based limit
+    expect(run.probes.length).toBeGreaterThanOrEqual(3);
+    expect(run.errors.join(" ")).toContain("still accepts its access token");
+  });
+
+  test("fast checks still get the whole window: sixteen waits of half a second", async () => {
+    const run = setup({ probeAnswer: 200 });
+    await runLogoutCommand(run.deps);
+    expect(run.sleeps).toHaveLength(16);
+    expect(run.sleeps.reduce((a, b) => a + b, 0)).toBe(8000);
+  });
+
+  test("a slow check that comes back dead still counts, even after the window", async () => {
+    // The last check is allowed to finish (it is a single request with its own limit).
+    const run = setup({ probeAnswer: [200, 200, 401], probeTakesMs: 4000 });
+    expect(await runLogoutCommand(run.deps)).toBe(0);
+  });
+});
+
+describe("a lock that can't be taken", () => {
+  const busy = "Another Tangent window is busy. Try again soon."; // the lock's own message
+
+  test("says so on its own line, and every line fits a narrow pane", async () => {
+    const run = setup({ lockThrows: busy });
+    expect(await runLogoutCommand(run.deps)).toBe(1);
+    expect(run.errors).toEqual(["tangent: Couldn't log out.", busy]);
+    for (const line of run.errors) expect(line.length).toBeLessThanOrEqual(50);
+  });
+
+  test("nothing is revoked or deleted", async () => {
+    const run = setup({ lockThrows: busy });
+    await runLogoutCommand(run.deps);
+    expect(run.revokes).toHaveLength(0);
+    expect(run.saved()).toEqual(TOKENS);
+  });
+});
+
 describe("LINEAR_API_KEY", () => {
   test("if it is set, a successful logout says Tangent will use it", async () => {
     const run = setup({ env: { LINEAR_API_KEY: "lin_api_env" } });
@@ -419,7 +522,8 @@ describe("the lock", () => {
 
     test("another window holding it too long fails the logout with a clear message and changes nothing", async () => {
       const lockPath = join(dir, "login.lock");
-      mkdirSync(lockPath); // another window holds it
+      mkdirSync(lockPath); // another window holds it, the way a real lock looks: a folder WITH its owner file
+      writeFileSync(join(lockPath, "owner"), "another-window");
       const run = setup();
       run.deps.lock = createFileLock(lockPath, { timeoutMs: 80, pollMs: 10, staleMs: 60_000 });
       expect(await runLogoutCommand(run.deps)).toBe(1);
@@ -439,6 +543,8 @@ describe("what is printed", () => {
     ["a failed delete and no network", { clearThrows: true, refreshAnswer: "network" as const }],
     ["the API still accepts the token", { accessAnswer: 401, probeAnswer: 200 }],
     ["the API needs a moment to refuse the token", { probeAnswer: [200, 401] }],
+    ["the lock can't be taken", { lockThrows: "Another Tangent window is busy. Try again soon." }],
+    ["a saved API key is left working", { savedApiKey: "lin_api_SECRETKEY" }],
     ["nothing saved", { tokens: null }],
     ["a vault that can't be read", { loadThrows: true }],
   ] as const;

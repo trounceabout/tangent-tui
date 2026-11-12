@@ -23,7 +23,7 @@
 //     look like a clean success, and the message says where to end it by hand.
 // Nothing printed ever contains a token. Lines are short so they don't wrap in a narrow pane.
 
-import { cleanText } from "../linear.ts";
+import { cleanText, getApiKey } from "../linear.ts";
 import { createSecretStore } from "../platform/secret-store.ts";
 import { loginLockPath } from "./app-session.ts";
 import { type RefreshLock, createFileLock } from "./lock.ts";
@@ -38,15 +38,21 @@ export interface LogoutCommandDeps {
   lock: RefreshLock;
   fetchFn?: typeof fetch;
   env: Record<string, string | undefined>;
-  // How to wait between checks. Passed in so tests don't really wait.
+  // The saved personal API key, or null if there is none (it throws if the Keychain can't be read).
+  // REQUIRED, so a test that forgets it is a compile error and can't reach the real Keychain.
+  readApiKey: () => Promise<string | null>;
+  // How to wait between checks, and what time it is. Passed in so tests don't really wait.
   sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
 }
 
 const MAX_DETAIL_CHARS = 200;
 
 // Linear stops accepting a revoked token a moment AFTER it says it revoked it. So when the API
-// still accepts the token we ask again every PROBE_EVERY_MS, for up to PROBE_WINDOW_MS, before
-// deciding it is really still live.
+// still accepts the token we ask again every PROBE_EVERY_MS, until PROBE_WINDOW_MS of REAL time
+// have passed (measured on the clock, not by counting waits, so slow requests can't stretch it),
+// before deciding it is really still live. The whole job runs inside the refresh lock, so it has
+// to be bounded: each request also has its own 5 second limit (revoke.ts).
 const PROBE_EVERY_MS = 500;
 const PROBE_WINDOW_MS = 8000;
 const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -57,6 +63,7 @@ const realDeps = (): LogoutCommandDeps => ({
   createStore: () => createTokenStore(createSecretStore()),
   lock: createFileLock(loginLockPath()),
   env: process.env,
+  readApiKey: getApiKey,
 });
 
 const detailOf = (error: unknown): string =>
@@ -74,9 +81,16 @@ export async function runLogoutCommand(deps: LogoutCommandDeps = realDeps()): Pr
     return 1;
   };
 
-  // If LINEAR_API_KEY is set, Tangent falls back to it after a logout: say so.
-  const noteOtherCredential = () => {
-    if (env.LINEAR_API_KEY?.trim()) print("LINEAR_API_KEY is set, so Tangent will use that.");
+  // After a logout Tangent falls back to a saved API key, then to LINEAR_API_KEY (in that order, like
+  // getAuthorization). Say which one, so a logout that leaves Tangent working as you isn't a surprise.
+  const noteOtherCredential = async () => {
+    const savedKey = await deps.readApiKey().catch(() => null); // can't read it: just say nothing
+    if (savedKey) {
+      print("A saved API key is in your Keychain,");
+      print("so Tangent will use that.");
+    } else if (env.LINEAR_API_KEY?.trim()) {
+      print("LINEAR_API_KEY is set, so Tangent will use that.");
+    }
   };
 
   // Can a login even be saved here? If not there is nothing to log out of.
@@ -86,7 +100,7 @@ export async function runLogoutCommand(deps: LogoutCommandDeps = realDeps()): Pr
   } catch {
     print("No saved login on this computer.");
     print("(Saving a login isn't supported on this system.)");
-    noteOtherCredential();
+    await noteOtherCredential();
     return 0;
   }
 
@@ -107,7 +121,7 @@ export async function runLogoutCommand(deps: LogoutCommandDeps = realDeps()): Pr
         return fail("Couldn't remove what is saved.", detailOf(error));
       }
       print("You weren't logged in.");
-      noteOtherCredential();
+      await noteOtherCredential();
       return 0;
     }
 
@@ -118,9 +132,11 @@ export async function runLogoutCommand(deps: LogoutCommandDeps = realDeps()): Pr
     // Don't trust Linear's revoke answers alone: ask the API whether the old access token still works.
     // If it still does, give Linear a few seconds to catch up before believing it.
     const sleep = deps.sleep ?? defaultSleep;
+    const now = deps.now ?? Date.now;
     let probe: ProbeOutcome = await probeAccessToken(fetchFn, tokens.accessToken);
     if (probe === "accepted") print("Checking that Linear ended it...");
-    for (let waited = 0; probe === "accepted" && waited < PROBE_WINDOW_MS; waited += PROBE_EVERY_MS) {
+    const startedChecking = now();
+    while (probe === "accepted" && now() - startedChecking < PROBE_WINDOW_MS) {
       await sleep(PROBE_EVERY_MS);
       probe = await probeAccessToken(fetchFn, tokens.accessToken);
     }
@@ -128,6 +144,13 @@ export async function runLogoutCommand(deps: LogoutCommandDeps = realDeps()): Pr
     // outright that it revoked it. A 400/401 from the revoke endpoint is NOT enough on its own.
     const accessEnded = probe === "rejected" || (probe === "unknown" && access === "revoked");
     // If anything may still be live at Linear, we say so (and exit 1) instead of claiming success.
+    //
+    // KNOWN RESIDUAL RISK: the REFRESH token is only confirmed by Linear's own revoke answer, where
+    // "already-gone" (400 or 401) is accepted. Revoking the access token first normally ends the whole
+    // login, so the refresh token then answers 401 (seen in real runs). But a 400 for an unrelated
+    // reason (say a malformed request) would also be accepted. The risk is narrow (it needs the access
+    // token to have expired too, or the answer to be wrong), and there is no safe way to test the
+    // refresh token directly (using it would rotate it). Linear's real answer bodies are not yet known.
     const unconfirmed = refresh === "failed" || access === "failed" || !accessEnded;
 
     let removed = true;
@@ -159,14 +182,15 @@ export async function runLogoutCommand(deps: LogoutCommandDeps = realDeps()): Pr
       print("Your login was ended at Linear and");
       print("removed from this computer.");
     }
-    noteOtherCredential();
+    await noteOtherCredential();
     return 0;
   }
 
   try {
     return await deps.lock.withLock(logoutLocked);
   } catch (error) {
-    // The lock couldn't be taken (another window is busy for too long), or something unexpected.
-    return fail(detailOf(error));
+    // The lock couldn't be taken (another window is busy for too long), or something unexpected. The
+    // reason goes on its own line so every line stays under the 50 columns a narrow pane shows.
+    return fail("Couldn't log out.", detailOf(error));
   }
 }
