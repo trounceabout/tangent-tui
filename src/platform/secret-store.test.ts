@@ -8,6 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   DamagedSecretError,
+  ACCOUNT,
   MAX_STORED_CHARS,
   type Run,
   type RunResult,
@@ -85,6 +86,22 @@ describe("set and get", () => {
     await store.set("other-thing", "two");
     expect(await store.get("tangent-oauth")).toBe("one");
     expect(await store.get("other-thing")).toBe("two");
+  });
+});
+
+describe("the account name", () => {
+  test("is 'tangent', and is what every lookup, write and delete uses", async () => {
+    expect(ACCOUNT).toBe("tangent");
+    const fake = fakeSecurity();
+    const store = createMacSecretStore(fake.run);
+    await store.set("tangent-oauth", "v");
+    await store.get("tangent-oauth");
+    await store.delete("tangent-oauth");
+    const write = fake.calls.find((call) => call.stdin !== undefined)?.stdin ?? "";
+    expect(write).toContain(`-a ${ACCOUNT} `);
+    for (const call of fake.calls.filter((call) => call.stdin === undefined)) {
+      expect(call.command[call.command.indexOf("-a") + 1]).toBe(ACCOUNT);
+    }
   });
 });
 

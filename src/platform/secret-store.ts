@@ -58,7 +58,9 @@ export const defaultRun: Run = async (command, options = {}) => {
   return { exitCode, stdout, stderr };
 };
 
-const ACCOUNT = "tangent"; // every Tangent item uses this fixed account name
+// Every Tangent item uses this fixed account name. Exported because the README's cleanup command names
+// it (`security delete-generic-password -s tangent-oauth -a tangent`), and a test checks they match.
+export const ACCOUNT = "tangent";
 const NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,62}$/; // lowercase, digits, . _ - ; can't start with "-"
 const NOT_FOUND = 44; // `security`'s exit code for "no such item"
 
