@@ -1,5 +1,5 @@
 // src/cli.ts
-// Command-line arguments: `tangent --help`, `--version` and `login`.
+// Command-line arguments: `tangent --help`, `--version`, `login` and `logout`.
 // Pure functions only (no printing, no exiting), so they are easy to test.
 // index.tsx calls these first and decides what to print and when to quit.
 
@@ -21,6 +21,7 @@ export function userArgs(argv: string[], argv0: string): string[] {
 export type CliAction =
   | { action: "run" } // no arguments: start the app
   | { action: "login" } // `tangent login`: log in with the browser
+  | { action: "logout" } // `tangent logout`: end the login
   | { action: "help" }
   | { action: "version" }
   | { action: "error"; message: string };
@@ -33,11 +34,13 @@ export function parseArgs(args: string[]): CliAction {
   if (args.includes("--help") || args.includes("-h")) return { action: "help" };
   if (args.includes("--version") || args.includes("-v")) return { action: "version" };
 
-  // `login` is the one command. Anything after it is a mistake, never a silent login.
-  if (args[0] === "login") {
+  // `login` and `logout` are the commands. A command has to come first and takes nothing after
+  // it: anything else is a mistake, never a silent login or logout.
+  const command = args[0] === "login" || args[0] === "logout" ? args[0] : undefined;
+  if (command !== undefined) {
     const extra = args[1];
     if (extra !== undefined) return { action: "error", message: `Unknown option: ${extra}. Try --help.` };
-    return { action: "login" };
+    return { action: command };
   }
 
   const unknown = args[0];
@@ -58,9 +61,11 @@ export const helpText = (): string =>
     "Usage:",
     "  tangent [options]",
     "  tangent login",
+    "  tangent logout",
     "",
     "Commands:",
     "  login           Log in with your browser (no API key needed)",
+    "  logout          Log out, and end the login at Linear",
     "",
     "Options:",
     "  -h, --help      Show this help and exit",
