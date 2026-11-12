@@ -1,8 +1,8 @@
 // Tests for src/auth/revoke.ts: ending a login token at Linear.
 
 import { describe, expect, test } from "bun:test";
-import { REVOKE_URL } from "./config.ts";
-import { buildRevokeRequest, revokeToken } from "./revoke.ts";
+import { GRAPHQL_URL, REVOKE_URL } from "./config.ts";
+import { buildRevokeRequest, probeAccessToken, revokeToken } from "./revoke.ts";
 
 // A fake fetch that answers with a fixed status and records what it was asked.
 function fakeFetch(status: number, body = "") {
@@ -86,5 +86,41 @@ describe("revokeToken: what it sends", () => {
     await revokeToken(fetchFn, "tok", "refresh_token");
     const headers = (calls[0]?.init.headers ?? {}) as Record<string, string>;
     expect(Object.keys(headers).map((key) => key.toLowerCase())).not.toContain("authorization");
+  });
+});
+
+describe("probeAccessToken: does the API still accept the token?", () => {
+  test.each([
+    [401, "rejected"],
+    [200, "accepted"],
+    [400, "unknown"],
+    [403, "unknown"],
+    [429, "unknown"],
+    [500, "unknown"],
+    [503, "unknown"],
+  ])("HTTP %d is %s", async (status, expected) => {
+    const { fetchFn } = fakeFetch(status);
+    expect(await probeAccessToken(fetchFn, "tok")).toBe(expected as never);
+  });
+
+  test("no network is 'unknown', not a crash", async () => {
+    const fetchFn = (async () => {
+      throw new Error("network down");
+    }) as unknown as typeof fetch;
+    expect(await probeAccessToken(fetchFn, "tok")).toBe("unknown");
+  });
+
+  test("it makes one read-only request to the API with the token as a Bearer header", async () => {
+    const { fetchFn, calls } = fakeFetch(401);
+    await probeAccessToken(fetchFn, "tok-SECRET");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe(GRAPHQL_URL);
+    expect(calls[0]?.init.method).toBe("POST");
+    const headers = (calls[0]?.init.headers ?? {}) as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer tok-SECRET");
+    const body = String(calls[0]?.init.body);
+    expect(body).toContain("viewer"); // the smallest read there is...
+    expect(body).not.toContain("mutation"); // ...and never a write
+    expect(body).not.toContain("SECRET"); // the token goes in the header, not the query
   });
 });
