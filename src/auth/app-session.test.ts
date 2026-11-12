@@ -26,15 +26,18 @@ let asked: string[]; // which Keychain items were looked up
 const saved = { key: process.env.LINEAR_API_KEY, xdg: process.env.XDG_CONFIG_HOME };
 
 // A fake `security`: answers a lookup by item name (the text after -s), exit 44 when there is none.
-function fakeKeychain(items: Record<string, string>) {
+// `unreadable` lists items whose lookup FAILS the way a locked Keychain does (exit 36), as opposed to
+// "no such item" (44).
+function fakeKeychain(items: Record<string, string>, unreadable: string[] = []) {
   spawn = spyOn(Bun, "spawn").mockImplementation(((command: string[]) => {
     const service = command[command.indexOf("-s") + 1] ?? "";
     asked.push(service);
     const stored = items[service];
+    const exitCode = unreadable.includes(service) ? 36 : stored === undefined ? 44 : 0;
     return {
       stdout: new Response(stored === undefined ? "" : `${stored}\n`).body,
       stderr: new Response("").body,
-      exited: Promise.resolve(stored === undefined ? 44 : 0),
+      exited: Promise.resolve(exitCode),
     };
   }) as never);
 }
@@ -68,10 +71,46 @@ describe("getAuthHeader", () => {
     expect(asked).not.toContain("linear-api-key");
   });
 
-  test("with no saved login, a damaged one is ignored and the API key is used", async () => {
+  test("a login item that isn't ours at all (not even base64url) is ignored and the API key is used", async () => {
+    // Text that is NOT base64url makes the secret store raise a DamagedSecretError; the token store turns
+    // that into "not logged in". (An earlier version of this test used text that happened to BE valid
+    // base64url, so it never reached that path.)
+    fakeKeychain({ "tangent-oauth": "not a login blob!", "linear-api-key": "lin_api_saved" });
+    expect(await getAuthHeader()).toBe("lin_api_saved");
+  });
+
+  test("a login item that is valid base64url but not our JSON is ignored too", async () => {
     // (This is also what the app's own tests rely on: their fake Keychain answers every lookup alike.)
     fakeKeychain({ "tangent-oauth": "not-a-login-blob", "linear-api-key": "lin_api_saved" });
     expect(await getAuthHeader()).toBe("lin_api_saved");
+  });
+
+  test("a damaged login item with no other credential says to log in, not that something broke", async () => {
+    fakeKeychain({ "tangent-oauth": "not a login blob!" });
+    await expect(getAuthHeader()).rejects.toBeInstanceOf(LoginRequiredError);
+  });
+
+  test("a Keychain that can't be read for the API key is an ERROR, not 'Not logged in'", async () => {
+    fakeKeychain({}, ["linear-api-key"]);
+    const error = await getAuthHeader().then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(LoginRequiredError);
+    expect((error as Error).message).toContain("Couldn't read the saved API key");
+  });
+
+  test("a Keychain that can't be read for the login is an ERROR too, and the API key is not consulted", async () => {
+    fakeKeychain({ "linear-api-key": "lin_api_saved" }, ["tangent-oauth"]);
+    await expect(getAuthHeader()).rejects.toThrow("Couldn't read");
+    expect(asked).not.toContain("linear-api-key");
+  });
+
+  test("an empty saved API key counts as none, so the LINEAR_API_KEY variable is used", async () => {
+    fakeKeychain({ "linear-api-key": "" });
+    process.env.LINEAR_API_KEY = "lin_api_env";
+    expect(await getAuthHeader()).toBe("lin_api_env");
   });
 
   test("the LINEAR_API_KEY variable is used when the Keychain has neither", async () => {

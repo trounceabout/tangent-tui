@@ -31,11 +31,9 @@ export function getAuthHeader(): Promise<string> {
   return getAuthorization({
     tokenStore: tokenStoreForThisComputer(),
     lock: createFileLock(loginLockPath()),
-    // The existing reader throws when there is no saved key; here that just means "none".
-    readApiKey: () => getApiKey().then(
-      (key) => key,
-      () => null,
-    ),
+    // null means there is no saved key. A Keychain that can't be READ throws, so the person sees that
+    // problem and not "Not logged in".
+    readApiKey: getApiKey,
     env: process.env,
   });
 }
