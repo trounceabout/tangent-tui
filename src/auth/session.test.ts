@@ -4,7 +4,7 @@
 // real ~/.config/tangent), so the "two windows at once" tests exercise the real thing.
 // Token values contain "SECRET" so a leak into an error message is easy to spot.
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -481,5 +481,26 @@ describe("tokens never leak into error messages", () => {
       const message = await messageOf(getAuthorization(deps));
       expect(message).not.toContain("SECRET");
     }
+  });
+});
+
+describe("the default refresh time limit is exactly 8 seconds (well inside the lock's 30 s)", () => {
+  const spies: { mockRestore(): void }[] = [];
+  afterEach(() => {
+    for (const spy of spies.splice(0)) spy.mockRestore();
+  });
+
+  test("a refresh asks for 8000 ms", async () => {
+    const spy = spyOn(AbortSignal, "timeout");
+    spies.push(spy);
+    await getAuthorization(setup(fakeStore(tokensExpiringIn(60_000))).deps);
+    expect(spy).toHaveBeenCalledWith(8000);
+  });
+
+  test("a custom limit is used as given", async () => {
+    const spy = spyOn(AbortSignal, "timeout");
+    spies.push(spy);
+    await getAuthorization(setup(fakeStore(tokensExpiringIn(60_000)), { refreshTimeoutMs: 1234 }).deps);
+    expect(spy).toHaveBeenCalledWith(1234);
   });
 });
