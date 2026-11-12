@@ -4,7 +4,7 @@
 // are fakes. Token values contain "SECRET" so a leak into printed text or an error is easy to spot.
 
 import { createHash } from "node:crypto";
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { CLIENT_ID, GRAPHQL_URL, TOKEN_URL } from "./config.ts";
 import { type LoginDeps, runLogin } from "./login.ts";
 import type { Tokens } from "./token.ts";
@@ -512,5 +512,27 @@ describe("tokens never leak", () => {
     const message = await failureOf(runLogin(failing.deps));
     expect(message).not.toContain("SECRET");
     expect(failing.lines.join("\n")).not.toContain("SECRET");
+  });
+});
+
+describe("the default time limits are exactly 15 s (code exchange) and 5 s (workspace lookup)", () => {
+  // AbortSignal.timeout(ms) has no readable duration, so spy on the call that creates it.
+  const spies: { mockRestore(): void }[] = [];
+  afterEach(() => {
+    for (const spy of spies.splice(0)) spy.mockRestore();
+  });
+
+  test("the exchange asks for 15000 ms, then the lookup for 5000 ms", async () => {
+    const spy = spyOn(AbortSignal, "timeout");
+    spies.push(spy);
+    await runLogin(setup().deps);
+    expect(spy.mock.calls.map((call) => call[0])).toEqual([15_000, 5_000]);
+  });
+
+  test("custom limits are used as given", async () => {
+    const spy = spyOn(AbortSignal, "timeout");
+    spies.push(spy);
+    await runLogin(setup({ timeouts: { exchangeMs: 1234, lookupMs: 4321 } }).deps);
+    expect(spy.mock.calls.map((call) => call[0])).toEqual([1234, 4321]);
   });
 });
