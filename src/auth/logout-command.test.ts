@@ -333,9 +333,12 @@ describe("what is printed", () => {
       clear: async () => {},
     });
     await runLogoutCommand(run.deps);
-    const line = run.errors[0] ?? "";
-    expect(line).not.toContain("\u001b");
-    expect(line).not.toContain("‮");
-    expect(line.length).toBeLessThan(320);
+    // The reason is on its own line (the second), after "tangent: Couldn't read your saved login."
+    expect(run.errors[0]).toBe("tangent: Couldn't read your saved login.");
+    const reason = run.errors[1] ?? "";
+    expect(reason.startsWith("bad")).toBe(true); // the reason really is shown...
+    expect(reason).not.toContain("\u001b"); // ...with control characters taken out...
+    expect(reason).not.toContain("\u202e");
+    expect(reason.length).toBeLessThanOrEqual(200); // ...and cut short
   });
 });
