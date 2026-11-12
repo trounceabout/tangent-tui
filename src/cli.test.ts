@@ -80,6 +80,24 @@ describe("parseArgs", () => {
     expect(parseArgs(["--version", "login"])).toEqual({ action: "version" });
   });
 
+  test("the word logout is the logout command", () => {
+    expect(parseArgs(["logout"])).toEqual({ action: "logout" });
+  });
+
+  test("anything after logout is an error, never a silent logout", () => {
+    expect(parseArgs(["logout", "extra"])).toEqual({
+      action: "error",
+      message: "Unknown option: extra. Try --help.",
+    });
+    expect(parseArgs(["logout", "login"]).action).toBe("error");
+    expect(parseArgs(["login", "logout"]).action).toBe("error");
+  });
+
+  test("help and version still win over logout", () => {
+    expect(parseArgs(["logout", "--help"])).toEqual({ action: "help" });
+    expect(parseArgs(["-v", "logout"])).toEqual({ action: "version" });
+  });
+
   test("login has to come first: a stray word before it is the error, and it is named", () => {
     // (Both a stray first word and a login-anywhere rule would give an error; only the first
     // blames the word that really came first.)
@@ -104,6 +122,7 @@ describe("helpText", () => {
   test("mentions the login command and the LINEAR_API_KEY variable", () => {
     const text = helpText();
     expect(text).toContain("tangent login");
+    expect(text).toContain("tangent logout");
     expect(text).toContain("LINEAR_API_KEY");
   });
 
@@ -156,6 +175,21 @@ describe("index.tsx as a command", () => {
     expect(source).toContain("runLoginCommand");
     expect(loginBranch).toBeLessThan(source.indexOf('await import("ink")'));
     expect(source).toContain("process.exit(await runLoginCommand())"); // and its exit code is the process's
+  });
+
+  test("the logout command is handled before the full-screen UI is loaded, and its exit code is the process's", async () => {
+    const source = await Bun.file("index.tsx").text();
+    const logoutBranch = source.indexOf('cli.action === "logout"');
+    expect(logoutBranch).toBeGreaterThan(-1);
+    expect(logoutBranch).toBeLessThan(source.indexOf('await import("ink")'));
+    expect(source).toContain("process.exit(await runLogoutCommand())");
+  });
+
+  test("logout with something extra is an error and exits 2 before anything is touched", async () => {
+    const { stdout, stderr, code } = await run("logout", "extra");
+    expect(stderr).toContain("Unknown option: extra");
+    expect(stdout).toBe("");
+    expect(code).toBe(2);
   });
 
   test("login with something extra is an error and exits 2 before anything is opened", async () => {

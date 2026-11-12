@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // index.tsx: the entry point. Starts the app full-screen.
 //
-// Command line: `tangent --help`, `--version` and `login` are handled FIRST, before the UI
+// Command line: `tangent --help`, `--version`, `login` and `logout` are handled FIRST, before the UI
 // is even loaded (that's why ink and the app are imported with `await import` further down,
 // not at the top). The argument rules live in src/cli.ts.
 //
@@ -35,6 +35,12 @@ if (cli.action === "error") {
 if (cli.action === "login") {
   const { runLoginCommand } = await import("./src/auth/login-command.ts");
   process.exit(await runLoginCommand());
+}
+
+// `tangent logout` is the same kind of command: plain terminal, then exit.
+if (cli.action === "logout") {
+  const { runLogoutCommand } = await import("./src/auth/logout-command.ts");
+  process.exit(await runLogoutCommand());
 }
 
 // Only now load the UI.
