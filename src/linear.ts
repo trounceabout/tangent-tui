@@ -93,7 +93,8 @@ function sanitizeIssue(issue: Issue): Issue {
 // API key + fetching
 // ---------------------------------------------------------------------------
 
-// Read the API key from the macOS Keychain (service "linear-api-key").
+// Read the saved personal API key from the macOS Keychain (service "linear-api-key"). This is only
+// one of the credentials: getAuthHeader() in src/auth/ decides whether to use it (a browser login wins).
 // `-w` makes `security` print only the password so we can capture it.
 export async function getApiKey(): Promise<string> {
   const proc = Bun.spawn(["security", "find-generic-password", "-s", "linear-api-key", "-w"], {
@@ -148,7 +149,9 @@ export async function linearQuery<T>(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      // Personal API keys go in as-is. Do NOT prefix with "Bearer ".
+      // `apiKey` is really the whole Authorization header VALUE from getAuthHeader(): a personal API
+      // key goes in as-is (do NOT add "Bearer " to it), and a browser login arrives already written
+      // as "Bearer <token>". Either way, send it untouched.
       Authorization: apiKey,
     },
     body: JSON.stringify({ query, variables }),
