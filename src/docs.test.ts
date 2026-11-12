@@ -41,14 +41,20 @@ describe("README.md", () => {
     for (const name of commands) expect(readme).toContain(`tangent ${name}`);
   });
 
+  test("the Run section lists every command, not just a mention somewhere else", async () => {
+    const run = section(await read("README.md"), "Run");
+    for (const name of helpCommands()) expect(run).toContain(`tangent ${name}`);
+  });
+
   test("names every permission the login asks for", async () => {
     const readme = await read("README.md");
     for (const scope of SCOPES) expect(readme).toContain(`\`${scope}\``);
   });
 
-  test("Setup leads with the browser login; the API key comes after, as the fallback", async () => {
+  test("Setup leads with the browser login command; the API key comes after, as the fallback", async () => {
     const setup = section(await read("README.md"), "Setup");
-    const login = setup.indexOf("tangent login");
+    // The login command itself, in its own code block (other mentions of it don't count).
+    const login = setup.indexOf("```sh\ntangent login\n```");
     const apiKey = setup.indexOf("security add-generic-password");
     expect(login).toBeGreaterThan(-1);
     expect(apiKey).toBeGreaterThan(-1);
@@ -101,10 +107,11 @@ describe("SECURITY.md", () => {
     expect(security).toContain("LINEAR_API_KEY");
   });
 
-  test("says how to end a login, by command and in Linear", async () => {
+  test("says how to end a login, by command and in Linear, in the bullet about ending it", async () => {
     const security = await read("SECURITY.md");
-    expect(security).toContain("tangent logout");
-    expect(security).toContain("Authorized applications");
+    const ending = security.split("\n").find((line) => line.startsWith("- **Ending it.**")) ?? "";
+    expect(ending).toContain("`tangent logout`");
+    expect(ending).toContain("Authorized applications");
   });
 
   test("still promises that credentials are never written to a file, env var or log", async () => {
