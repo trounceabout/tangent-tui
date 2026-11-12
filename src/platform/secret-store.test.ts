@@ -6,7 +6,15 @@
 // cuts an over-long stdin line, which is what the size cap protects against.
 
 import { describe, expect, test } from "bun:test";
-import { MAX_STORED_CHARS, type Run, type RunResult, createMacSecretStore, createSecretStore, defaultRun } from "./secret-store.ts";
+import {
+  DamagedSecretError,
+  MAX_STORED_CHARS,
+  type Run,
+  type RunResult,
+  createMacSecretStore,
+  createSecretStore,
+  defaultRun,
+} from "./secret-store.ts";
 
 const SECRET = '{"accessToken":"access-SECRET","note":"é ☃ \\"quoted\\" \\\\ back"}';
 
@@ -129,25 +137,36 @@ describe("names are checked before anything runs", () => {
 });
 
 describe("the size cap", () => {
-  test("the largest allowed secret works; one more character is refused without running anything", async () => {
-    // Stored text is base64url, so 3 secret bytes become 4 stored characters.
-    const fits = "x".repeat(Math.floor((MAX_STORED_CHARS * 3) / 4));
-    const fake = fakeSecurity();
-    await createMacSecretStore(fake.run).set("tangent-oauth", fits);
-    expect(fake.calls.length).toBeGreaterThan(0);
+  test("the cap is 1700 stored characters (the number the line-length limit was measured against)", () => {
+    expect(MAX_STORED_CHARS).toBe(1700);
+  });
+
+  test("the boundary: 1275 bytes (exactly 1700 stored characters) is accepted, ONE byte more is refused without running anything", async () => {
+    // Stored text is base64url: 3 bytes become 4 characters, so 1275 bytes is exactly 1700 characters
+    // and 1276 bytes is 1702. Literal numbers on purpose: a test built from the constant moves with it.
+    const fits = fakeSecurity();
+    await createMacSecretStore(fits.run).set("tangent-oauth", "x".repeat(1275));
+    expect(fits.calls.length).toBeGreaterThan(0);
 
     const tooBig = fakeSecurity();
-    const message = await messageOf(createMacSecretStore(tooBig.run).set("tangent-oauth", "x".repeat(MAX_STORED_CHARS)));
+    const message = await messageOf(createMacSecretStore(tooBig.run).set("tangent-oauth", "x".repeat(1276)));
     expect(message).toContain("too large");
+    expect(tooBig.calls).toHaveLength(0);
+  });
+
+  test("a value far over the cap is refused too", async () => {
+    const tooBig = fakeSecurity();
+    expect(await messageOf(createMacSecretStore(tooBig.run).set("tangent-oauth", "x".repeat(5000)))).toContain("too large");
     expect(tooBig.calls).toHaveLength(0);
   });
 
   test("the longest line we would send stays well under the tool's 4 KB cut-off", async () => {
     const fake = fakeSecurity();
-    // The longest allowed name (63 characters) plus the largest allowed value: the worst case.
-    await createMacSecretStore(fake.run).set("a".repeat(63), "x".repeat(Math.floor((MAX_STORED_CHARS * 3) / 4)));
+    // The longest allowed name (63 characters) plus the largest allowed value (1275 bytes): the worst case.
+    await createMacSecretStore(fake.run).set("a".repeat(63), "x".repeat(1275));
     const line = fake.calls.find((call) => call.stdin !== undefined)?.stdin ?? "";
-    expect(line.length).toBeLessThan(3800);
+    expect(line.length).toBeLessThan(3600); // about 3,500; the tool's cut-off is about 4,096
+    expect(line.length).toBeGreaterThan(3400); // and it really is the worst case, not a short line
   });
 });
 
@@ -172,12 +191,31 @@ describe("failures are errors, never silent", () => {
     expect(await messageOf(store.get("tangent-oauth"))).toContain("Couldn't read");
   });
 
-  test("stored text that isn't plain base64url is an error, not a secret", async () => {
+  test("stored text that isn't plain base64url is a DamagedSecretError, not a secret", async () => {
     // (Text that merely LOOKS like base64url is accepted here; the token store checks the JSON.)
     for (const storedText of ["not base64url!!", "has space", "<script>", "a=b", ""]) {
       const store = createMacSecretStore(fakeSecurity({ storedText }).run);
-      expect(await messageOf(store.get("tangent-oauth"))).toContain("damaged");
+      const error = await store.get("tangent-oauth").then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(error).toBeInstanceOf(DamagedSecretError);
+      expect((error as Error).message).toContain("damaged");
     }
+  });
+
+  test("a vault that can't be read is NOT a DamagedSecretError (callers treat the two differently)", async () => {
+    const store = createMacSecretStore(fakeSecurity({ findExit: 36 }).run);
+    const error = await store.get("tangent-oauth").then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(DamagedSecretError);
+  });
+
+  test("an item that isn't there is null, not an error of either kind", async () => {
+    expect(await createMacSecretStore(fakeSecurity().run).get("tangent-oauth")).toBeNull();
   });
 });
 

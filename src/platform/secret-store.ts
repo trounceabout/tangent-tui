@@ -19,9 +19,20 @@
 //  - Error messages never include the secret, the tool's output or its error text (the tool
 //    echoes part of a bad command back, which could contain the secret).
 
+// What `get` throws when there IS an item but its contents aren't something we wrote (text that
+// isn't base64url: hex from a non-ASCII value, an empty password, an item another program wrote).
+// It is its own class so callers can treat "damaged" differently from "the vault couldn't be read":
+// the first just means there is no usable secret here, the second means we couldn't look.
+export class DamagedSecretError extends Error {
+  constructor() {
+    super("The saved login in the Keychain is damaged.");
+    this.name = "DamagedSecretError";
+  }
+}
+
 export interface SecretStore {
-  // The secret stored under `name`, or null if there is none. Throws if it can't be read
-  // or the stored data is damaged.
+  // The secret stored under `name`, or null if there is none. Throws a DamagedSecretError if the
+  // stored data isn't ours, and an ordinary Error if the vault can't be read.
   get(name: string): Promise<string | null>;
   // Store (or replace) the secret. Throws unless it was stored and read back identically.
   set(name: string, value: string): Promise<void>;
@@ -71,7 +82,7 @@ export function createMacSecretStore(run: Run = defaultRun): SecretStore {
       const stored = result.stdout.trim();
       // Only plain base64url is valid. Anything else (hex from a non-ASCII value, an
       // item someone else wrote) is damaged data, not a secret of ours.
-      if (!/^[A-Za-z0-9_-]+$/.test(stored)) throw new Error("The saved login in the Keychain is damaged.");
+      if (!/^[A-Za-z0-9_-]+$/.test(stored)) throw new DamagedSecretError();
       return Buffer.from(stored, "base64url").toString("utf8");
     },
 
