@@ -94,6 +94,8 @@ describe("linearQuery never prints the credential", () => {
     ["a line break", "Bearer abc\r\nSECRETTAIL"],
     ["a newline", "lin_api_abc\nSECRETTAIL"],
     ["a euro sign", "Bearer abc\u20acSECRETTAIL"],
+    ["a Latin-1 letter (valid in a header, but no real credential has one)", "lin_api_abc\u00e9SECRETTAIL"],
+    ["a DEL character", "lin_api_abc\u007fSECRETTAIL"],
     ["a zero-width space", "lin_api_abc\u200bSECRETTAIL"],
     ["a tab", "lin_api_abc\tSECRETTAIL"],
     ["an empty value", ""],
