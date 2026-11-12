@@ -11,7 +11,10 @@
 //     the access token (its revoke answered 401), yet the API kept accepting that token for the
 //     rest of its day, while the message claimed it was ended.
 //  3b. Then ask the API whether it still accepts the old access token (probeAccessToken). Linear's
-//     revoke answers are ambiguous, so this is the only real confirmation.
+//     revoke answers are ambiguous, so this is the only real confirmation. And Linear takes a
+//     moment to STOP accepting a revoked token (a real run: HTTP 200 a few milliseconds after the
+//     revoke, 401 a moment later), so if the API still accepts it we keep asking for a few
+//     seconds before concluding it is really still live.
 //  4. Revoke BEFORE deleting. If the command dies in between, a dead login left on this computer
 //     is cleaned up automatically later; the other way round would leave a live token at Linear
 //     with no local copy to ever end it.
@@ -35,9 +38,18 @@ export interface LogoutCommandDeps {
   lock: RefreshLock;
   fetchFn?: typeof fetch;
   env: Record<string, string | undefined>;
+  // How to wait between checks. Passed in so tests don't really wait.
+  sleep?: (ms: number) => Promise<void>;
 }
 
 const MAX_DETAIL_CHARS = 200;
+
+// Linear stops accepting a revoked token a moment AFTER it says it revoked it. So when the API
+// still accepts the token we ask again every PROBE_EVERY_MS, for up to PROBE_WINDOW_MS, before
+// deciding it is really still live.
+const PROBE_EVERY_MS = 500;
+const PROBE_WINDOW_MS = 8000;
+const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 const realDeps = (): LogoutCommandDeps => ({
   print: (line) => console.log(line),
@@ -104,7 +116,14 @@ export async function runLogoutCommand(deps: LogoutCommandDeps = realDeps()): Pr
     const access: RevokeOutcome = await revokeToken(fetchFn, tokens.accessToken, "access_token");
     const refresh: RevokeOutcome = await revokeToken(fetchFn, tokens.refreshToken, "refresh_token");
     // Don't trust Linear's revoke answers alone: ask the API whether the old access token still works.
-    const probe: ProbeOutcome = await probeAccessToken(fetchFn, tokens.accessToken);
+    // If it still does, give Linear a few seconds to catch up before believing it.
+    const sleep = deps.sleep ?? defaultSleep;
+    let probe: ProbeOutcome = await probeAccessToken(fetchFn, tokens.accessToken);
+    if (probe === "accepted") print("Checking that Linear ended it...");
+    for (let waited = 0; probe === "accepted" && waited < PROBE_WINDOW_MS; waited += PROBE_EVERY_MS) {
+      await sleep(PROBE_EVERY_MS);
+      probe = await probeAccessToken(fetchFn, tokens.accessToken);
+    }
     // The access token counts as ended if the API refuses it, or if we couldn't ask but Linear said
     // outright that it revoked it. A 400/401 from the revoke endpoint is NOT enough on its own.
     const accessEnded = probe === "rejected" || (probe === "unknown" && access === "revoked");

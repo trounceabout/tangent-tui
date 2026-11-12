@@ -33,7 +33,8 @@ function setup(
     refreshAnswer?: number | "network";
     accessAnswer?: number | "network";
     // What the API says when asked whether it still accepts the old access token (default 401: dead).
-    probeAnswer?: number | "network";
+    // A list means "answer these in turn, then keep repeating the last": Linear says 200 for a moment, then 401.
+    probeAnswer?: number | "network" | readonly (number | "network")[];
     lockThrows?: string;
     env?: Record<string, string | undefined>;
   } = {},
@@ -43,6 +44,8 @@ function setup(
   const errors: string[] = [];
   const revokes: Revoke[] = [];
   const probes: { authorization: string; query: string }[] = [];
+  const sleeps: number[] = [];
+  const probeQueue: (number | "network")[] | undefined = Array.isArray(options.probeAnswer) ? [...options.probeAnswer] : undefined;
   let saved: Tokens | null = options.tokens === undefined ? TOKENS : options.tokens;
 
   const store: TokenStore = {
@@ -66,7 +69,9 @@ function setup(
       events.push("probe");
       const headers = (init?.headers ?? {}) as Record<string, string>;
       probes.push({ authorization: headers.Authorization ?? "", query: String(init?.body) });
-      const probeAnswer = options.probeAnswer ?? 401;
+      const probeAnswer = probeQueue
+        ? ((probeQueue.length > 1 ? probeQueue.shift() : probeQueue[0]) ?? 401)
+        : ((options.probeAnswer as number | "network" | undefined) ?? 401);
       if (probeAnswer === "network") throw new Error("network down");
       return new Response("", { status: probeAnswer });
     }
@@ -103,8 +108,13 @@ function setup(
     },
     fetchFn,
     env: options.env ?? {},
+    // A fake clock: waiting is recorded, never real.
+    sleep: async (ms) => {
+      events.push("sleep");
+      sleeps.push(ms);
+    },
   };
-  return { deps, events, out, errors, revokes, probes, saved: () => saved };
+  return { deps, events, out, errors, revokes, probes, sleeps, saved: () => saved };
 }
 
 const everything = (run: ReturnType<typeof setup>) => [...run.out, ...run.errors].join("\n");
@@ -189,6 +199,69 @@ describe("confirming with the API (Linear's revoke answers can't be trusted alon
     const run = setup({ probeAnswer: 200 });
     expect(await runLogoutCommand(run.deps)).toBe(1);
     expect(run.errors.join(" ")).toContain("still accepts");
+  });
+
+  test("A REAL RUN: Linear says 200 for a moment after the revoke, then 401. The logout waits and succeeds", async () => {
+    // What your run against Linear did: access revoke 200, refresh revoke 401, the API 200 a few milliseconds
+    // later, and 401 a moment after that. The first version gave up at the first 200 and said it was still live.
+    const run = setup({ accessAnswer: 200, refreshAnswer: 401, probeAnswer: [200, 401] });
+    expect(await runLogoutCommand(run.deps)).toBe(0);
+    expect(run.out.join(" ")).toContain("Logged out.");
+    expect(run.out.join(" ")).toContain("Checking that Linear ended it");
+    expect(run.errors).toHaveLength(0);
+    expect(run.probes).toHaveLength(2);
+    expect(run.sleeps).toEqual([500]);
+  });
+
+  test("it keeps the lock while it waits, and deletes only after the API has refused the token", async () => {
+    const run = setup({ probeAnswer: [200, 200, 401] });
+    await runLogoutCommand(run.deps);
+    expect(run.events).toEqual([
+      "lock",
+      "load",
+      "revoke:access_token",
+      "revoke:refresh_token",
+      "probe",
+      "sleep",
+      "probe",
+      "sleep",
+      "probe",
+      "clear",
+      "unlock",
+    ]);
+  });
+
+  test("if the API refuses at once, there is no waiting and no 'Checking' line", async () => {
+    const run = setup();
+    await runLogoutCommand(run.deps);
+    expect(run.sleeps).toHaveLength(0);
+    expect(run.probes).toHaveLength(1);
+    expect(run.out.join(" ")).not.toContain("Checking");
+  });
+
+  test("it gives up after a bounded time (8 seconds in half-second steps), then says the token is still accepted", async () => {
+    const run = setup({ probeAnswer: 200 });
+    expect(await runLogoutCommand(run.deps)).toBe(1);
+    expect(run.sleeps).toHaveLength(16);
+    expect(run.sleeps.every((ms) => ms === 500)).toBe(true);
+    expect(run.sleeps.reduce((a, b) => a + b, 0)).toBe(8000);
+    expect(run.probes).toHaveLength(17); // the first look, then one after each wait
+    expect(run.errors.join(" ")).toContain("still accepts its access token");
+  });
+
+  test("the very last look inside the window still counts; one more 200 does not", async () => {
+    const justInTime = setup({ probeAnswer: [...Array(16).fill(200), 401] });
+    expect(await runLogoutCommand(justInTime.deps)).toBe(0);
+    const tooLate = setup({ probeAnswer: Array(17).fill(200) });
+    expect(await runLogoutCommand(tooLate.deps)).toBe(1);
+  });
+
+  test("it only waits when the API says it still ACCEPTS the token, not when it merely can't be asked", async () => {
+    for (const probeAnswer of ["network" as const, 500, 503]) {
+      const run = setup({ probeAnswer });
+      await runLogoutCommand(run.deps);
+      expect(run.sleeps).toHaveLength(0);
+    }
   });
 
   test("the API refusing the token confirms it, even when both revokes answered 'already gone'", async () => {
@@ -363,6 +436,7 @@ describe("what is printed", () => {
     ["a failed delete", { clearThrows: true }],
     ["a failed delete and no network", { clearThrows: true, refreshAnswer: "network" as const }],
     ["the API still accepts the token", { accessAnswer: 401, probeAnswer: 200 }],
+    ["the API needs a moment to refuse the token", { probeAnswer: [200, 401] }],
     ["nothing saved", { tokens: null }],
     ["a vault that can't be read", { loadThrows: true }],
   ] as const;
