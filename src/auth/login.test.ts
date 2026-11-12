@@ -28,6 +28,8 @@ function fakeLinear(
     graphql?: () => Response;
     tokenThrows?: boolean;
     graphqlThrows?: boolean;
+    tokenHangs?: boolean; // never answers, but gives up when the request's time limit fires
+    graphqlHangs?: boolean;
   } = {},
 ) {
   const calls: Call[] = [];
@@ -35,11 +37,18 @@ function fakeLinear(
   const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     calls.push({ url, init: init ?? {} });
+    const stall = () =>
+      new Promise<Response>((_resolve, reject) => {
+        // A stalled server: nothing comes back unless the caller's time limit aborts the request.
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason ?? new Error("aborted")));
+      });
     if (url === TOKEN_URL) {
+      if (options.tokenHangs) return stall();
       if (options.tokenThrows) throw new Error("network down");
       return options.token ? options.token() : json(goodTokenReply);
     }
     if (url === GRAPHQL_URL) {
+      if (options.graphqlHangs) return stall();
       if (options.graphqlThrows) throw new Error("network down");
       return options.graphql ? options.graphql() : json({ data: { organization: { name: "Acme Corp" } } });
     }
@@ -67,6 +76,8 @@ function setup(overrides: Partial<LoginDeps> = {}, linear = fakeLinear(), reply?
   const events: string[] = [];
   const lines: string[] = [];
   const saved: Tokens[] = [];
+  const discarded: { accessToken?: string; refreshToken?: string }[] = [];
+  const savedWhenLookupStarted: number[] = [];
   const fake = browser(reply);
   const deps: LoginDeps = {
     openBrowser: (url) => {
@@ -81,7 +92,16 @@ function setup(overrides: Partial<LoginDeps> = {}, linear = fakeLinear(), reply?
       events.push("save");
       saved.push(tokens);
     },
-    fetchFn: linear.fetchFn,
+    discard: async (tokens) => {
+      events.push("discard");
+      discarded.push(tokens);
+    },
+    // The same fake Linear, noting the order requests are made in.
+    fetchFn: (async (input: string | URL | Request, init?: RequestInit) => {
+      events.push(`fetch:${String(input)}`);
+      if (String(input) === GRAPHQL_URL) savedWhenLookupStarted.push(saved.length);
+      return linear.fetchFn(input, init);
+    }) as typeof fetch,
     now: () => NOW,
     serverOptions: {
       ports: [0],
@@ -90,7 +110,7 @@ function setup(overrides: Partial<LoginDeps> = {}, linear = fakeLinear(), reply?
     },
     ...overrides,
   };
-  return { deps, events, lines, saved, linear, browser: fake };
+  return { deps, events, lines, saved, discarded, savedWhenLookupStarted, linear, browser: fake };
 }
 
 // What went wrong, as the message the person would see.
@@ -144,7 +164,12 @@ describe("a successful login", () => {
     await runLogin(run.deps);
     const at = (needle: string) => run.events.findIndex((event) => event.includes(needle));
     expect(at("Before you approve")).toBeGreaterThanOrEqual(0);
-    expect(at("Before you approve")).toBeLessThan(at("open"));
+    // The browser opening is the exact event "open", NOT any line that merely mentions it
+    // ("...If the browser didn't open..." is printed before the browser really opens).
+    const opened = run.events.indexOf("open");
+    expect(opened).toBeGreaterThan(-1);
+    expect(at("Before you approve")).toBeLessThan(opened);
+    expect(at("didn't open")).toBeLessThan(opened); // and the fallback address is on screen first too
     expect(at("save")).toBeLessThan(at("Logged in to"));
   });
 
@@ -228,6 +253,123 @@ describe("the workspace name", () => {
     expect(workspace).not.toContain("\u001b");
     expect(workspace).not.toContain("‮");
     expect((workspace ?? "").length).toBeLessThanOrEqual(100);
+  });
+});
+
+describe("the requests to Linear can't stall for ever", () => {
+  test("the code exchange and the workspace lookup both carry a time limit", async () => {
+    const run = setup();
+    await runLogin(run.deps);
+    expect(run.linear.calls.map((call) => call.url)).toEqual([TOKEN_URL, GRAPHQL_URL]);
+    for (const call of run.linear.calls) expect(call.init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("a workspace lookup that stalls is given up on: the login still works, and was already saved", async () => {
+    const run = setup({ timeouts: { lookupMs: 40 } }, fakeLinear({ graphqlHangs: true }));
+    const started = Date.now();
+    expect(await runLogin(run.deps)).toEqual({ workspace: undefined });
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(run.saved).toHaveLength(1);
+    expect(run.lines).toContain("Logged in. (Couldn't read the workspace name.)");
+  });
+
+  test("a code exchange that stalls is given up on with a clear message, and nothing is saved", async () => {
+    const run = setup({ timeouts: { exchangeMs: 40 } }, fakeLinear({ tokenHangs: true }));
+    expect(await failureOf(runLogin(run.deps))).toContain("Couldn't reach Linear");
+    expect(run.saved).toHaveLength(0);
+    expect(run.discarded).toHaveLength(0); // we never saw any tokens, so there is nothing to end
+  });
+});
+
+describe("the tokens are saved BEFORE the workspace lookup", () => {
+  test("so giving up during a slow lookup can't lose tokens that were never saved", async () => {
+    const run = setup();
+    await runLogin(run.deps);
+    expect(run.savedWhenLookupStarted).toEqual([1]); // already saved when the lookup began
+    expect(run.events.indexOf("save")).toBeLessThan(run.events.indexOf(`fetch:${GRAPHQL_URL}`));
+  });
+});
+
+describe("tokens Linear issued but we can't keep are ended at Linear", () => {
+  // Once Linear has accepted the code it HAS issued tokens. Failing after that without ending them
+  // would leave them live for 30 days with no copy on this computer.
+  const badToken = (change: Record<string, unknown>) => () => new Response(JSON.stringify({ ...goodTokenReply, ...change }));
+
+  test("saving fails: both tokens are handed to discard, and the person sees the save error", async () => {
+    const run = setup({
+      save: async () => {
+        throw new Error("the Keychain is locked");
+      },
+    });
+    const message = await failureOf(runLogin(run.deps));
+    expect(message).toContain("Couldn't save the login");
+    expect(message).not.toContain("SECRET");
+    // Only the two tokens are handed over (nothing else from the reply).
+    expect(run.discarded).toEqual([{ accessToken: "access-SECRET", refreshToken: "refresh-SECRET" }]);
+  });
+
+  test("the tokens fail our checks: the raw tokens are ended, nothing is saved, and no token is repeated", async () => {
+    const run = setup({}, fakeLinear({ token: badToken({ access_token: "bad\nSECRET" }) }));
+    const message = await failureOf(runLogin(run.deps));
+    expect(message).toContain("access token");
+    expect(message).not.toContain("SECRET");
+    expect(run.saved).toHaveLength(0);
+    expect(run.discarded).toEqual([{ accessToken: "bad\nSECRET", refreshToken: "refresh-SECRET" }]);
+  });
+
+  test("too few permissions were granted: the tokens are ended", async () => {
+    const run = setup({}, fakeLinear({ token: badToken({ scope: "read" }) }));
+    expect(await failureOf(runLogin(run.deps))).toContain("issues:create");
+    expect(run.discarded).toEqual([{ accessToken: "access-SECRET", refreshToken: "refresh-SECRET" }]);
+  });
+
+  test("a discard that itself fails never hides the real error", async () => {
+    const run = setup({
+      save: async () => {
+        throw new Error("the Keychain is locked");
+      },
+      discard: async () => {
+        throw new Error("revoke failed SECRET");
+      },
+    });
+    const message = await failureOf(runLogin(run.deps));
+    expect(message).toContain("Couldn't save the login");
+    expect(message).not.toContain("revoke failed");
+  });
+
+  test("nothing is discarded when the login works", async () => {
+    const run = setup();
+    await runLogin(run.deps);
+    expect(run.discarded).toHaveLength(0);
+  });
+
+  test("nothing is discarded when Linear refuses the code (no tokens were issued)", async () => {
+    const refusal = () => new Response(JSON.stringify({ error: "invalid_grant", error_description: "expired" }), { status: 400 });
+    const run = setup({}, fakeLinear({ token: refusal }));
+    await failureOf(runLogin(run.deps));
+    expect(run.discarded).toHaveLength(0);
+  });
+
+  test("nothing is discarded when the person cancels, or it times out (the code was never traded)", async () => {
+    const cancelled = setup({}, fakeLinear(), { error: "access_denied" });
+    await failureOf(runLogin(cancelled.deps));
+    expect(cancelled.discarded).toHaveLength(0);
+    const timedOut = setup({
+      openBrowser: () => {},
+      serverOptions: { ports: [0], redirectUriForPort: (p) => `http://127.0.0.1:${p}/callback`, timeoutMs: 80 },
+    });
+    await failureOf(runLogin(timedOut.deps));
+    expect(timedOut.discarded).toHaveLength(0);
+  });
+
+  test("with no discard function given, a failure is still reported normally", async () => {
+    const run = setup({
+      discard: undefined,
+      save: async () => {
+        throw new Error("the Keychain is locked");
+      },
+    });
+    expect(await failureOf(runLogin(run.deps))).toContain("Couldn't save the login");
   });
 });
 
