@@ -211,6 +211,8 @@ describe("confirming with the API (Linear's revoke answers can't be trusted alon
     expect(run.errors).toHaveLength(0);
     expect(run.probes).toHaveLength(2);
     expect(run.sleeps).toEqual([500]);
+    // Every check, the later ones too, asks about the OLD ACCESS token (not the refresh token).
+    expect(run.probes.every((probe) => probe.authorization === "Bearer access-SECRET")).toBe(true);
   });
 
   test("it keeps the lock while it waits, and deletes only after the API has refused the token", async () => {
