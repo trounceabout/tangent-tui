@@ -62,6 +62,29 @@ describe("parseArgs", () => {
   test("version wins over an unknown option", () => {
     expect(parseArgs(["--bogus", "-v"])).toEqual({ action: "version" });
   });
+
+  test("the word login is the login command", () => {
+    expect(parseArgs(["login"])).toEqual({ action: "login" });
+  });
+
+  test("anything after login is an error, never a silent login", () => {
+    expect(parseArgs(["login", "extra"])).toEqual({
+      action: "error",
+      message: "Unknown option: extra. Try --help.",
+    });
+    expect(parseArgs(["login", "--bogus"]).action).toBe("error");
+  });
+
+  test("help and version still win over login", () => {
+    expect(parseArgs(["login", "--help"])).toEqual({ action: "help" });
+    expect(parseArgs(["--version", "login"])).toEqual({ action: "version" });
+  });
+
+  test("login has to come first: a stray word before it is the error, and it is named", () => {
+    // (Both a stray first word and a login-anywhere rule would give an error; only the first
+    // blames the word that really came first.)
+    expect(parseArgs(["hello", "login"])).toEqual({ action: "error", message: "Unknown option: hello. Try --help." });
+  });
 });
 
 describe("versionText", () => {
@@ -76,6 +99,12 @@ describe("helpText", () => {
     for (const word of ["--help", "--version", "TANGENT_DRY_RUN", "TANGENT_MOUSE"]) {
       expect(text).toContain(word);
     }
+  });
+
+  test("mentions the login command and the LINEAR_API_KEY variable", () => {
+    const text = helpText();
+    expect(text).toContain("tangent login");
+    expect(text).toContain("LINEAR_API_KEY");
   });
 
   test("no line is wider than 80 columns", () => {
@@ -114,6 +143,24 @@ describe("index.tsx as a command", () => {
   test("an unknown option goes to stderr and exits 2", async () => {
     const { stdout, stderr, code } = await run("--bogus");
     expect(stderr).toContain("Unknown option: --bogus");
+    expect(stdout).toBe("");
+    expect(code).toBe(2);
+  });
+
+  test("the login command is handled before the full-screen UI is loaded", async () => {
+    // `tangent login` can't be run here (it would open a browser and use the real vault), so check
+    // the source. If this branch went missing, `tangent login` would silently start the full-screen app.
+    const source = await Bun.file("index.tsx").text();
+    const loginBranch = source.indexOf('cli.action === "login"');
+    expect(loginBranch).toBeGreaterThan(-1);
+    expect(source).toContain("runLoginCommand");
+    expect(loginBranch).toBeLessThan(source.indexOf('await import("ink")'));
+    expect(source).toContain("process.exit(await runLoginCommand())"); // and its exit code is the process's
+  });
+
+  test("login with something extra is an error and exits 2 before anything is opened", async () => {
+    const { stdout, stderr, code } = await run("login", "extra");
+    expect(stderr).toContain("Unknown option: extra");
     expect(stdout).toBe("");
     expect(code).toBe(2);
   });

@@ -1,5 +1,5 @@
 // src/cli.ts
-// Command-line arguments: `tangent --help` and `--version`.
+// Command-line arguments: `tangent --help`, `--version` and `login`.
 // Pure functions only (no printing, no exiting), so they are easy to test.
 // index.tsx calls these first and decides what to print and when to quit.
 
@@ -20,6 +20,7 @@ export function userArgs(argv: string[], argv0: string): string[] {
 // What the command line is asking for.
 export type CliAction =
   | { action: "run" } // no arguments: start the app
+  | { action: "login" } // `tangent login`: log in with the browser
   | { action: "help" }
   | { action: "version" }
   | { action: "error"; message: string };
@@ -31,6 +32,13 @@ export type CliAction =
 export function parseArgs(args: string[]): CliAction {
   if (args.includes("--help") || args.includes("-h")) return { action: "help" };
   if (args.includes("--version") || args.includes("-v")) return { action: "version" };
+
+  // `login` is the one command. Anything after it is a mistake, never a silent login.
+  if (args[0] === "login") {
+    const extra = args[1];
+    if (extra !== undefined) return { action: "error", message: `Unknown option: ${extra}. Try --help.` };
+    return { action: "login" };
+  }
 
   const unknown = args[0];
   if (unknown !== undefined) {
@@ -49,12 +57,17 @@ export const helpText = (): string =>
     "",
     "Usage:",
     "  tangent [options]",
+    "  tangent login",
+    "",
+    "Commands:",
+    "  login           Log in with your browser (no API key needed)",
     "",
     "Options:",
     "  -h, --help      Show this help and exit",
     "  -v, --version   Show the version and exit",
     "",
     "Environment:",
+    "  LINEAR_API_KEY=key  A personal API key, used when you haven't logged in",
     "  TANGENT_DRY_RUN=1   Try every screen; nothing is sent to Linear",
     "  TANGENT_MOUSE=0     Start with the mouse off (press m to toggle)",
     "",
