@@ -184,14 +184,14 @@ describe("parseTokenResponse: tokens, expiry and scopes must be safe to keep", (
     ["an access token with a zero-width space", { access_token: "abc\u200bSECRET" }],
     ["an access token with a quote", { access_token: 'abc"SECRET' }],
     ["an access token with a backslash", { access_token: "abc\\SECRET" }],
-    ["an access token that is too long", { access_token: "a".repeat(MAX_TOKEN_CHARS + 1) }],
+    ["an access token one character too long (301)", { access_token: "a".repeat(301) }],
     ["a refresh token with a line break", { refresh_token: "abc\r\nSECRET" }],
     ["a refresh token outside Latin-1", { refresh_token: "abc\u20acSECRET" }],
     ["a 1,000,000-character refresh token", { refresh_token: "r".repeat(1_000_000) }],
-    ["a refresh token that is too long", { refresh_token: "r".repeat(MAX_TOKEN_CHARS + 1) }],
+    ["a refresh token one character too long (301)", { refresh_token: "r".repeat(301) }],
     ["an expiry of Number.MAX_VALUE (which would make expiresAt Infinity)", { expires_in: Number.MAX_VALUE }],
-    ["an expiry beyond a year", { expires_in: MAX_EXPIRES_IN_SECONDS + 1 }],
-    ["more scopes than Tangent keeps", { scope: `issues:create read ${Array.from({ length: MAX_SCOPES }, (_, i) => `extra${i}`).join(" ")}` }],
+    ["an expiry one second beyond a year (31,536,001)", { expires_in: 31_536_001 }],
+    ["nine scopes (one more than Tangent keeps)", { scope: `issues:create read ${Array.from({ length: 7 }, (_, i) => `extra${i}`).join(" ")}` }],
   ];
 
   test.each(refused)("refuses %s", (_label, change) => {
@@ -208,15 +208,22 @@ describe("parseTokenResponse: tokens, expiry and scopes must be safe to keep", (
   test("the limits sit exactly where they say: the largest allowed values are accepted", () => {
     const biggest = {
       ...goodReply(),
-      access_token: "a".repeat(MAX_TOKEN_CHARS),
-      refresh_token: "r".repeat(MAX_TOKEN_CHARS),
-      expires_in: MAX_EXPIRES_IN_SECONDS,
-      scope: `issues:create read ${Array.from({ length: MAX_SCOPES - 2 }, (_, i) => `extra${i}`).join(" ")}`,
+      access_token: "a".repeat(300),
+      refresh_token: "r".repeat(300),
+      expires_in: 31_536_000, // exactly a year
+      scope: `issues:create read ${Array.from({ length: 6 }, (_, i) => `extra${i}`).join(" ")}`, // eight scopes
     };
     const tokens = parseTokenResponse(biggest, NOW);
-    expect(tokens.accessToken).toHaveLength(MAX_TOKEN_CHARS);
-    expect(tokens.scopes).toHaveLength(MAX_SCOPES);
-    expect(Number.isFinite(tokens.expiresAt)).toBe(true);
+    expect(tokens.accessToken).toHaveLength(300);
+    expect(tokens.refreshToken).toHaveLength(300);
+    expect(tokens.scopes).toHaveLength(8);
+    expect(tokens.expiresAt).toBe(NOW + 31_536_000 * 1000);
+  });
+
+  test("the exported limits are the numbers the checks above are written against", () => {
+    expect(MAX_TOKEN_CHARS).toBe(300);
+    expect(MAX_SCOPES).toBe(8);
+    expect(MAX_EXPIRES_IN_SECONDS).toBe(31_536_000);
   });
 
   test("every character the Bearer-token alphabet allows is accepted", () => {
