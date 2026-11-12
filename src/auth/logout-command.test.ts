@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { REVOKE_URL } from "./config.ts";
+import { GRAPHQL_URL, REVOKE_URL } from "./config.ts";
 import { createFileLock } from "./lock.ts";
 import { type LogoutCommandDeps, runLogoutCommand } from "./logout-command.ts";
 import type { TokenStore } from "./token-store.ts";
@@ -32,6 +32,8 @@ function setup(
     // What Linear answers for each kind of token (default 200). "network" means no answer at all.
     refreshAnswer?: number | "network";
     accessAnswer?: number | "network";
+    // What the API says when asked whether it still accepts the old access token (default 401: dead).
+    probeAnswer?: number | "network";
     lockThrows?: string;
     env?: Record<string, string | undefined>;
   } = {},
@@ -40,6 +42,7 @@ function setup(
   const out: string[] = [];
   const errors: string[] = [];
   const revokes: Revoke[] = [];
+  const probes: { authorization: string; query: string }[] = [];
   let saved: Tokens | null = options.tokens === undefined ? TOKENS : options.tokens;
 
   const store: TokenStore = {
@@ -59,6 +62,14 @@ function setup(
   };
 
   const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input) === GRAPHQL_URL) {
+      events.push("probe");
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      probes.push({ authorization: headers.Authorization ?? "", query: String(init?.body) });
+      const probeAnswer = options.probeAnswer ?? 401;
+      if (probeAnswer === "network") throw new Error("network down");
+      return new Response("", { status: probeAnswer });
+    }
     const form = new URLSearchParams(String(init?.body));
     const hint = form.get("token_type_hint") ?? "";
     revokes.push({ token: form.get("token") ?? "", hint });
@@ -93,7 +104,7 @@ function setup(
     fetchFn,
     env: options.env ?? {},
   };
-  return { deps, events, out, errors, revokes, saved: () => saved };
+  return { deps, events, out, errors, revokes, probes, saved: () => saved };
 }
 
 const everything = (run: ReturnType<typeof setup>) => [...run.out, ...run.errors].join("\n");
@@ -108,30 +119,38 @@ describe("a normal logout", () => {
     expect(run.saved()).toBeNull();
   });
 
-  test("steps happen in this order: lock, load, revoke refresh, revoke access, delete, unlock", async () => {
+  test("steps happen in this order: lock, load, revoke ACCESS, revoke refresh, check with the API, delete, unlock", async () => {
     const run = setup();
     await runLogoutCommand(run.deps);
-    expect(run.events).toEqual(["lock", "load", "revoke:refresh_token", "revoke:access_token", "clear", "unlock"]);
+    expect(run.events).toEqual(["lock", "load", "revoke:access_token", "revoke:refresh_token", "probe", "clear", "unlock"]);
+  });
+
+  test("the access token is revoked BEFORE the refresh token (the other way round left it working for hours)", async () => {
+    // A real run against Linear: revoking the refresh token first made the access-token revoke answer
+    // 401, while the API kept accepting that token for the rest of its day.
+    const run = setup();
+    await runLogoutCommand(run.deps);
+    expect(run.events.indexOf("revoke:access_token")).toBeLessThan(run.events.indexOf("revoke:refresh_token"));
   });
 
   test("it revokes the right token for each kind, with nothing else sent", async () => {
     const run = setup();
     await runLogoutCommand(run.deps);
     expect(run.revokes).toEqual([
-      { token: "refresh-SECRET", hint: "refresh_token" },
       { token: "access-SECRET", hint: "access_token" },
+      { token: "refresh-SECRET", hint: "refresh_token" },
     ]);
   });
 
-  test("revoking comes BEFORE deleting, so a crash in between can't leave a live token with no copy", async () => {
+  test("revoking and checking come BEFORE deleting, so a crash in between can't leave a live token with no copy", async () => {
     const run = setup();
     await runLogoutCommand(run.deps);
-    expect(run.events.indexOf("revoke:access_token")).toBeLessThan(run.events.indexOf("clear"));
+    expect(run.events.indexOf("revoke:refresh_token")).toBeLessThan(run.events.indexOf("clear"));
+    expect(run.events.indexOf("probe")).toBeLessThan(run.events.indexOf("clear"));
   });
 
-  test("a refresh already revoked by the first call (access answers 'already gone') still counts as a clean logout", async () => {
-    // Revoking the refresh token ends the whole login, so the access token often answers 400/401 afterwards.
-    const run = setup({ accessAnswer: 401 });
+  test("the access token revoke ends the whole login, so the refresh token then answers 'already gone': a clean logout", async () => {
+    const run = setup({ refreshAnswer: 401 });
     expect(await runLogoutCommand(run.deps)).toBe(0);
     expect(run.out.join(" ")).toContain("ended at Linear and removed");
   });
@@ -143,6 +162,52 @@ describe("Linear had already ended the login", () => {
     expect(await runLogoutCommand(run.deps)).toBe(0);
     expect(run.out.join(" ")).toContain("already ended");
     expect(run.saved()).toBeNull();
+  });
+});
+
+describe("confirming with the API (Linear's revoke answers can't be trusted alone)", () => {
+  test("the API is asked about the OLD access token, with a read-only query, after both revokes", async () => {
+    const run = setup();
+    await runLogoutCommand(run.deps);
+    expect(run.probes).toHaveLength(1);
+    expect(run.probes[0]?.authorization).toBe("Bearer access-SECRET");
+    expect(run.probes[0]?.query).toContain("viewer");
+    expect(run.probes[0]?.query).not.toContain("mutation");
+  });
+
+  test("THE REAL BUG: the revoke said 401 ('already gone') but the API still accepts the token: exit 1, not 'Logged out'", async () => {
+    // What a real run against Linear did (refresh revoked first): access revoke -> 401, yet the API still answered 200.
+    const run = setup({ accessAnswer: 401, probeAnswer: 200 });
+    expect(await runLogoutCommand(run.deps)).toBe(1);
+    expect(run.errors.join(" ")).toContain("still accepts its access token");
+    expect(run.errors.join(" ")).toContain("Authorized applications");
+    expect(run.out.join(" ")).not.toContain("Logged out");
+    expect(run.saved()).toBeNull(); // the local copy is still removed
+  });
+
+  test("even when every revoke said 200, an API that still accepts the token is reported", async () => {
+    const run = setup({ probeAnswer: 200 });
+    expect(await runLogoutCommand(run.deps)).toBe(1);
+    expect(run.errors.join(" ")).toContain("still accepts");
+  });
+
+  test("the API refusing the token confirms it, even when both revokes answered 'already gone'", async () => {
+    const run = setup({ refreshAnswer: 400, accessAnswer: 401, probeAnswer: 401 });
+    expect(await runLogoutCommand(run.deps)).toBe(0);
+    expect(run.out.join(" ")).toContain("already ended");
+  });
+
+  test("can't ask the API, but Linear said it revoked the access token: accepted", async () => {
+    for (const probeAnswer of ["network" as const, 500, 503]) {
+      const run = setup({ probeAnswer });
+      expect(await runLogoutCommand(run.deps)).toBe(0);
+    }
+  });
+
+  test("can't ask the API, and the revoke only said 'already gone': NOT confirmed", async () => {
+    const run = setup({ accessAnswer: 401, probeAnswer: "network" });
+    expect(await runLogoutCommand(run.deps)).toBe(1);
+    expect(run.errors.join(" ")).toContain("couldn't confirm Linear ended it");
   });
 });
 
@@ -297,6 +362,7 @@ describe("what is printed", () => {
     ["no network", { refreshAnswer: "network" as const, accessAnswer: "network" as const }],
     ["a failed delete", { clearThrows: true }],
     ["a failed delete and no network", { clearThrows: true, refreshAnswer: "network" as const }],
+    ["the API still accepts the token", { accessAnswer: 401, probeAnswer: 200 }],
     ["nothing saved", { tokens: null }],
     ["a vault that can't be read", { loadThrows: true }],
   ] as const;

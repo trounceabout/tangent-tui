@@ -6,7 +6,12 @@
 //  1. Take the refresh lock for the whole job. A refresh in another window rotates the tokens;
 //     if it ran while we revoke, we would end the OLD tokens and leave the new ones live.
 //  2. Load the saved login. If the vault can't be read we stop: nothing is changed.
-//  3. Revoke the refresh token (the long-lived one), then the access token.
+//  3. Revoke the ACCESS token first, then the refresh token. The order is not a detail: a real run
+//     against Linear showed that revoking the refresh token first makes Linear stop recognising
+//     the access token (its revoke answered 401), yet the API kept accepting that token for the
+//     rest of its day, while the message claimed it was ended.
+//  3b. Then ask the API whether it still accepts the old access token (probeAccessToken). Linear's
+//     revoke answers are ambiguous, so this is the only real confirmation.
 //  4. Revoke BEFORE deleting. If the command dies in between, a dead login left on this computer
 //     is cleaned up automatically later; the other way round would leave a live token at Linear
 //     with no local copy to ever end it.
@@ -19,7 +24,7 @@ import { cleanText } from "../linear.ts";
 import { createSecretStore } from "../platform/secret-store.ts";
 import { loginLockPath } from "./app-session.ts";
 import { type RefreshLock, createFileLock } from "./lock.ts";
-import { type RevokeOutcome, revokeToken } from "./revoke.ts";
+import { type ProbeOutcome, type RevokeOutcome, probeAccessToken, revokeToken } from "./revoke.ts";
 import { type TokenStore, createTokenStore } from "./token-store.ts";
 
 export interface LogoutCommandDeps {
@@ -95,10 +100,16 @@ export async function runLogoutCommand(deps: LogoutCommandDeps = realDeps()): Pr
     }
 
     const fetchFn = deps.fetchFn ?? fetch;
-    const refresh: RevokeOutcome = await revokeToken(fetchFn, tokens.refreshToken, "refresh_token");
+    // Access token FIRST (see the note at the top), then the refresh token.
     const access: RevokeOutcome = await revokeToken(fetchFn, tokens.accessToken, "access_token");
-    // If either answer was "couldn't tell", the token may still be live at Linear.
-    const unconfirmed = refresh === "failed" || access === "failed";
+    const refresh: RevokeOutcome = await revokeToken(fetchFn, tokens.refreshToken, "refresh_token");
+    // Don't trust Linear's revoke answers alone: ask the API whether the old access token still works.
+    const probe: ProbeOutcome = await probeAccessToken(fetchFn, tokens.accessToken);
+    // The access token counts as ended if the API refuses it, or if we couldn't ask but Linear said
+    // outright that it revoked it. A 400/401 from the revoke endpoint is NOT enough on its own.
+    const accessEnded = probe === "rejected" || (probe === "unknown" && access === "revoked");
+    // If anything may still be live at Linear, we say so (and exit 1) instead of claiming success.
+    const unconfirmed = refresh === "failed" || access === "failed" || !accessEnded;
 
     let removed = true;
     try {
@@ -113,7 +124,12 @@ export async function runLogoutCommand(deps: LogoutCommandDeps = realDeps()): Pr
         : fail("Couldn't remove your login from the", "Keychain. It was ended at Linear, so it no", "longer works.");
     }
     if (unconfirmed) {
-      return fail("Removed your login from this computer,", "but couldn't confirm Linear ended it.", "To be sure:", ...BY_HAND);
+      return fail(
+        "Removed your login from this computer,",
+        probe === "accepted" ? "but Linear still accepts its access token." : "but couldn't confirm Linear ended it.",
+        "To be sure:",
+        ...BY_HAND,
+      );
     }
 
     print("Logged out.");
