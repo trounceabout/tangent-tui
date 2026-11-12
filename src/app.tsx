@@ -419,8 +419,18 @@ export function App() {
     // The whole list screen: a column exactly as big as the terminal.
     <Box flexDirection="column" width={columns} height={rows}>
       {issues === null ? (
-        <Box flexGrow={1}>
-          <Text dimColor>{error ? "" : "Loading from Linear…"}</Text>
+        <Box flexGrow={1} flexDirection="column" paddingX={1} paddingTop={1}>
+          {error ? (
+            // Nothing has loaded yet and it failed (most often a first run with no login). Say so
+            // HERE, where the text wraps, not only in the one-line footer, which cuts it off in a
+            // narrow pane. `r` reloads now; the timer retries every minute anyway.
+            <>
+              <Text color="red">{error}</Text>
+              <Text dimColor>Press r to try again. It also retries every minute.</Text>
+            </>
+          ) : (
+            <Text dimColor>Loading from Linear…</Text>
+          )}
         </Box>
       ) : (
         <>
@@ -498,7 +508,8 @@ export function App() {
             {mouseApi.supported && !mouseOn ? <Text dimColor>mouse off  </Text> : null}
             {!viewSettings.showLabels ? <Text dimColor>labels off  </Text> : null}
             {flash ? <Text color="green">{`✓ ${flash}  `}</Text> : null}
-            {error ? <Text color="red">{`${error}  `}</Text> : null}
+            {/* With no board yet, the error is already shown in the body: don't repeat it here. */}
+            {error && issues !== null ? <Text color="red">{`${error}  `}</Text> : null}
             {settingsError ? <Text color="red">{`${settingsError}  `}</Text> : null}
             <Text dimColor>
               {`${hasAbove ? "▲ " : ""}${hasBelow ? "▼ " : ""}${refreshing ? "refreshing…" : time ? `updated ${time}` : ""}`}

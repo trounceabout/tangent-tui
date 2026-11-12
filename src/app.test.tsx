@@ -227,6 +227,90 @@ describe("which credential reaches Linear", () => {
     app.unmount();
   });
 
+  // A first run, or a failed first load: nothing has loaded, so there is no board to show.
+  const withoutEnvKey = async (body: () => Promise<void>) => {
+    const savedKey = process.env.LINEAR_API_KEY;
+    delete process.env.LINEAR_API_KEY;
+    try {
+      await body();
+    } finally {
+      if (savedKey === undefined) delete process.env.LINEAR_API_KEY;
+      else process.env.LINEAR_API_KEY = savedKey;
+    }
+  };
+
+  test("first run with no credential: the BODY says so, nothing is sent, and logging in elsewhere then pressing r loads the board", async () => {
+    await withoutEnvKey(async () => {
+      keychainWith({}); // nothing saved anywhere
+      const linear = fakeLinear(0, false);
+      restoreFetch = mockFetch(linear.respond);
+      const app = mountTerminal(<App />, { columns: COLUMNS, rows: ROWS, mouse: true });
+      await app.waitForText("Not logged in");
+      const rows = app.screen().split("\n");
+      expect(rows.slice(0, 6).join("\n")).toContain("Not logged in"); // in the body, at the top
+      expect(rows.slice(-3).join("\n")).not.toContain("Not logged in"); // not repeated in the footer
+      expect(app.flat()).toContain("tangent login");
+      expect(app.flat()).toContain("Press r to try again");
+      expect(linear.server.requests).toHaveLength(0); // nothing was sent without a credential
+
+      // Log in somewhere else (the Keychain now holds a login), then press r here.
+      keychainWith({ "tangent-oauth": loginBlob() });
+      await app.press("r");
+      await app.waitForText("PD-7");
+      expect(app.screen()).not.toContain("Not logged in");
+      expect(linear.server.requests.length).toBeGreaterThan(0);
+      app.unmount();
+    });
+  });
+
+  test("the message wraps in a narrow pane instead of being cut off", async () => {
+    await withoutEnvKey(async () => {
+      keychainWith({});
+      restoreFetch = mockFetch(fakeLinear(0, false).respond);
+      const app = mountTerminal(<App />, { columns: 40, rows: 14, mouse: true });
+      await app.waitForText("Not logged in");
+      // 58 characters in a 40-column pane: all of it must still be on screen, over several lines.
+      expect(app.flat()).toContain("Not logged in. Run `tangent login`, or set LINEAR_API_KEY.");
+      app.unmount();
+    });
+  });
+
+  test("a failed first load (a saved key, but Linear is down) is shown in the body too", async () => {
+    keychainWith({ "linear-api-key": "lin_api_saved" });
+    restoreFetch = mockFetch(() => new Response("down", { status: 500 }));
+    const app = mountTerminal(<App />, { columns: COLUMNS, rows: ROWS, mouse: true });
+    await app.waitForText("HTTP 500");
+    expect(app.screen().split("\n").slice(0, 6).join("\n")).toContain("HTTP 500");
+    expect(app.flat()).toContain("Press r to try again");
+    app.unmount();
+  });
+
+  test("a reload that fails AFTER the board loaded keeps the board and shows the error in the footer", async () => {
+    keychainWith({ "linear-api-key": "lin_api_saved" });
+    const linear = fakeLinear(0, false);
+    let down = false;
+    restoreFetch = mockFetch((request) => (down ? new Response("down", { status: 503 }) : linear.respond(request)));
+    const app = mountTerminal(<App />, { columns: COLUMNS, rows: ROWS, mouse: true });
+    await app.waitForText("PD-7");
+    down = true;
+    await app.press("r");
+    await app.waitForText("HTTP 503");
+    expect(app.screen().split("\n").slice(-3).join("\n")).toContain("HTTP 503"); // in the footer
+    expect(app.screen()).toContain("PD-7"); // the board is still there
+    expect(app.screen()).not.toContain("Press r to try again"); // the full-screen message is only for no board
+    app.unmount();
+  });
+
+  test("while it is still loading, it says so (no error shown)", async () => {
+    keychainWith({ "linear-api-key": "lin_api_saved" });
+    restoreFetch = mockFetch(fakeLinear(0, false).respond, { delayMs: 300 });
+    const app = mountTerminal(<App />, { columns: COLUMNS, rows: ROWS, mouse: true });
+    await app.waitForText("Loading from Linear");
+    expect(app.screen()).not.toContain("Press r to try again");
+    await app.waitForText("PD-7");
+    app.unmount();
+  });
+
   test("with only a saved API key, the raw key is sent, with no Bearer", async () => {
     keychainWith({ "linear-api-key": "lin_api_saved" });
     const app = await startApp();
