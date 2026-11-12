@@ -53,6 +53,10 @@ export interface LockOptions {
   // How often a holder touches its lock while its task runs. Default: a third of `staleMs`. 0 turns
   // it off (only for tests that need a lock to go stale while it is held).
   heartbeatMs?: number;
+  // FOR TESTS ONLY. Called when a waiter has just seen the lock stale and is about to go through the
+  // takeover gate. The gap between those two moments is microseconds, so a test can't otherwise
+  // change the lock inside it to prove the second look inside the gate really happens.
+  onSeenStale?: () => void | Promise<void>;
 }
 
 const OWNER_FILE = "owner";
@@ -137,7 +141,10 @@ export function createFileLock(path: string, options: LockOptions = {}): Refresh
 
       // Someone holds it. If nobody has touched it for too long, take it over and try at once.
       const looked = await stat(path).catch(() => undefined); // undefined: it was released, or can't be read
-      if (looked && Date.now() - looked.mtimeMs > staleMs && (await clearStaleLock())) continue;
+      if (looked && Date.now() - looked.mtimeMs > staleMs) {
+        await options.onSeenStale?.();
+        if (await clearStaleLock()) continue;
+      }
 
       await sleep(pollMs);
     }

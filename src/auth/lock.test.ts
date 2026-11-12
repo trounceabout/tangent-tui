@@ -216,6 +216,20 @@ describe("a busy holder stays fresh (the heartbeat)", () => {
     });
   });
 
+  test("a holder whose lock was replaced does not keep the NEW owner's lock fresh", async () => {
+    // Simulate a takeover while A is alive: swap the lock folder for another window's, long untouched.
+    const lock = createFileLock(lockPath, { staleMs: 60_000, heartbeatMs: 20 });
+    await lock.withLock(async () => {
+      rmSync(lockPath, { recursive: true, force: true });
+      heldByAnotherWindow();
+      const longAgo = new Date(Date.now() - 50_000);
+      utimesSync(lockPath, longAgo, longAgo);
+      await sleep(150); // several heartbeats
+      expect(Date.now() - statSync(lockPath).mtimeMs).toBeGreaterThan(40_000); // still as old as we made it
+    });
+    expect(existsSync(lockPath)).toBe(true); // and A's release left the other window's lock alone
+  });
+
   test("with the heartbeat off, a long task does go stale and gets taken over (the tests above rely on this)", async () => {
     const lock = createFileLock(lockPath, { staleMs: 100, pollMs: 5, timeoutMs: 3000, heartbeatMs: 0 });
     const events: string[] = [];
@@ -324,20 +338,30 @@ describe("taking over a stale lock", () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
-  test("a stale lock is only cleared if it is STILL stale when the gate is reached (a fresh one is left alone)", async () => {
-    // The lock looks stale to the first look, but a live window touches it before we get through the gate.
+  test("a lock is only cleared if it is STILL stale inside the gate (one touched in the gap is left alone)", async () => {
+    // The waiter sees the lock stale; in the gap before it reaches the gate, the (not actually dead)
+    // holder touches it. Looking again inside the gate must notice, and leave it alone.
     leaveStaleLock();
-    const gate = `${lockPath}.takeover`;
-    mkdirSync(gate); // hold the gate so the waiter parks at it
-    // staleMs is longer than the timeout, so once touched the lock can't go stale again before we give up.
-    const lock = createFileLock(lockPath, { staleMs: 1000, pollMs: 5, timeoutMs: 400 });
-    const attempt = lock.withLock(async () => "stole it");
-    await sleep(50);
-    const now = new Date();
-    utimesSync(lockPath, now, now); // the holder woke and touched its lock: no longer stale
-    rmSync(gate, { recursive: true }); // the gate opens; the waiter looks again inside it
-    await expect(attempt).rejects.toThrow("Another Tangent window is busy"); // it left the fresh lock alone
+    const lock = createFileLock(lockPath, {
+      staleMs: 1000, // longer than the timeout, so it can't go stale again before we give up
+      pollMs: 5,
+      timeoutMs: 300,
+      onSeenStale: () => {
+        const now = new Date();
+        utimesSync(lockPath, now, now);
+      },
+    });
+    await expect(lock.withLock(async () => "stole a live lock")).rejects.toThrow("Another Tangent window is busy");
     expect(existsSync(lockPath)).toBe(true);
+    expect(readFileSync(join(lockPath, "owner"), "utf8")).toBe("a-window-that-crashed"); // untouched
+  });
+
+  test("the same gap with a lock that is really dead: it is cleared and the waiter gets in", async () => {
+    leaveStaleLock();
+    let seen = 0;
+    const lock = createFileLock(lockPath, { staleMs: 1000, pollMs: 5, timeoutMs: 2000, onSeenStale: () => void seen++ });
+    expect(await lock.withLock(async () => "got in")).toBe("got in");
+    expect(seen).toBeGreaterThan(0); // the hook really ran in the gap
   });
 });
 
