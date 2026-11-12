@@ -46,6 +46,13 @@ function rawRequest(port: number, text: string): Promise<string> {
     }, 3000);
     socket.on("data", (chunk) => {
       received += chunk.toString();
+      // The status line and headers are all these tests read. Bun keeps the socket open after a
+      // reply, so don't wait for it to end (that only ever timed out).
+      if (received.includes("\r\n\r\n")) {
+        clearTimeout(timer);
+        socket.destroy();
+        resolve(received);
+      }
     });
     socket.on("end", () => {
       clearTimeout(timer);
@@ -184,6 +191,63 @@ describe("the pages never echo what the URL said", () => {
   });
 });
 
+describe("closing", () => {
+  test("close() before any answer settles the result as 'closed' instead of leaving it pending", async () => {
+    const server = start();
+    await server.close();
+    expect(await settledWithin(server.result, 200)).toBe(true);
+    expect(await server.result).toEqual({ kind: "closed" });
+  });
+
+  test("close() after an answer leaves that answer alone", async () => {
+    const server = start();
+    await redirect(server, `?code=abc&state=${STATE}`);
+    await server.close();
+    expect(await server.result).toEqual({ kind: "code", code: "abc" });
+  });
+
+  test("close() after a timeout leaves the timeout alone", async () => {
+    const server = start({ timeoutMs: 30 });
+    expect(await server.result).toEqual({ kind: "timeout" });
+    await server.close();
+    expect(await server.result).toEqual({ kind: "timeout" });
+  });
+
+  test("closing twice is fine", async () => {
+    const server = start();
+    await server.close();
+    await server.close();
+  });
+
+  test("no longer listens once closed", async () => {
+    const server = start();
+    const port = server.port;
+    await server.close();
+    const again = Bun.serve({ hostname: "127.0.0.1", port, fetch: () => new Response("ok") });
+    extras.push(again);
+    expect(again.port).toBe(port);
+  });
+
+  test("if working out the redirect address throws, the server is stopped before the error leaves", async () => {
+    let listeningOn = 0;
+    expect(() =>
+      startCallbackServer({
+        state: STATE,
+        ports: [0],
+        redirectUriForPort: (port) => {
+          listeningOn = port;
+          throw new Error("no address for this port");
+        },
+      }),
+    ).toThrow("no address for this port");
+    expect(listeningOn).toBeGreaterThan(0);
+    await new Promise((resolve) => setTimeout(resolve, 50)); // stop(true) is fire-and-forget
+    const again = Bun.serve({ hostname: "127.0.0.1", port: listeningOn, fetch: () => new Response("ok") });
+    extras.push(again);
+    expect(again.port).toBe(listeningOn); // the port is free again, so nothing was left listening
+  });
+});
+
 describe("where it listens", () => {
   test("only on the loopback address, not on the network", async () => {
     // Find this machine's own non-loopback IPv4 address, if it has one. A server that listened
@@ -193,8 +257,10 @@ describe("where it listens", () => {
       .find((address) => address?.family === "IPv4" && !address.internal);
     if (!external) return; // no network interface to test against (e.g. an offline sandbox)
     const server = start();
-    const attempt = rawRequest(server.port, "GET / HTTP/1.1\r\nHost: x\r\n\r\n").catch(() => "refused");
-    expect(await attempt).not.toContain("HTTP/1.1");
+    // The loopback address must really answer (this used to pass only by timing out)...
+    const viaLoopback = await rawRequest(server.port, `GET / HTTP/1.1\r\nHost: 127.0.0.1:${server.port}\r\n\r\n`);
+    expect(viaLoopback.startsWith("HTTP/1.1 404")).toBe(true);
+    // ...and the machine's own network address must not.
     const viaNetwork = await new Promise<string>((resolve) => {
       const socket = connect(server.port, external.address);
       socket.on("connect", () => {

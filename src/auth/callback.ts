@@ -18,12 +18,13 @@ export type CallbackResult =
   | { kind: "code"; code: string } // the login worked: trade this code for tokens
   | { kind: "denied" } // the person pressed Cancel on Linear's consent screen
   | { kind: "error"; error: string } // Linear sent another error (already cleaned)
-  | { kind: "timeout" }; // nobody finished in time
+  | { kind: "timeout" } // nobody finished in time
+  | { kind: "closed" }; // close() was called before any answer came (so nobody waits forever)
 
 export interface CallbackServer {
   readonly port: number;
   readonly redirectUri: string; // put this in the login address
-  readonly result: Promise<CallbackResult>; // settles once, when the wait ends
+  readonly result: Promise<CallbackResult>; // settles once, when the wait ends (or on close())
   close(): Promise<void>; // stop listening, after any answer in flight has been sent
 }
 
@@ -51,7 +52,9 @@ function page(message: string, status = 200): Response {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
       "referrer-policy": "no-referrer",
-      // Ask the browser not to keep the connection open, so shutting down is never held up.
+      // A courtesy: this asks for the connection to be closed. Bun sends the header but leaves the
+      // socket open anyway. That is harmless (stop() still finishes at once and the port can be
+      // reused straight away), so don't rely on this header to close anything.
       connection: "close",
     },
   });
@@ -128,17 +131,32 @@ export function startCallbackServer(options: CallbackOptions): CallbackServer {
   }
 
   const bound = server; // fixed for the closures below
+  const port = bound.port ?? 0;
+
+  // The server is already listening, so if working out the address throws (a custom `ports` list
+  // with no matching function), stop it before the error leaves, or it would keep listening with
+  // nothing able to stop it.
+  let redirectUri: string;
+  try {
+    redirectUri = redirectUriForPort(port);
+  } catch (error) {
+    void bound.stop(true);
+    throw error;
+  }
+
   timer = setTimeout(() => settle({ kind: "timeout" }), timeoutMs);
   timer.unref?.();
 
   return {
-    port: bound.port ?? 0,
-    redirectUri: redirectUriForPort(bound.port ?? 0),
+    port,
+    redirectUri,
     result,
     // `stop()` without `true` lets a response already on its way finish, so the browser always
     // gets its "you can close this tab" page (stopping hard cut it off in the issue #66 spike).
+    // If no answer has come yet, `result` settles as "closed" so nothing waits on it forever (this
+    // does nothing once an answer or a timeout has already settled it).
     close: async () => {
-      clearTimeout(timer);
+      settle({ kind: "closed" });
       await bound.stop();
     },
   };
