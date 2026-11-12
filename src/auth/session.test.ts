@@ -72,12 +72,12 @@ function fakeStore(
   return { store, events, current: () => saved };
 }
 
-type Call = { url: string; body: string };
+type Call = { url: string; body: string; signal?: AbortSignal | null };
 // A fake Linear for the refresh request. `reply` builds each response; `throws` simulates no network.
 function fakeLinear(reply: () => Response = () => new Response(JSON.stringify(goodRefreshReply)), throws = false) {
   const calls: Call[] = [];
   const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
-    calls.push({ url: String(input), body: String(init?.body) });
+    calls.push({ url: String(input), body: String(init?.body), signal: init?.signal });
     if (throws) throw new Error("network down");
     return reply();
   }) as unknown as typeof fetch;
@@ -86,9 +86,31 @@ function fakeLinear(reply: () => Response = () => new Response(JSON.stringify(go
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
+// A Linear that is slow or stalled. Like a real `fetch`, it gives up when the request's time limit fires.
+function slowLinear(options: { hang?: boolean; delayMs?: number } = {}) {
+  const calls: Call[] = [];
+  const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(input), body: String(init?.body), signal: init?.signal });
+    await new Promise<void>((resolve, reject) => {
+      const timer = options.hang ? undefined : setTimeout(resolve, options.delayMs ?? 0);
+      init?.signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(init.signal?.reason ?? new Error("aborted"));
+      });
+    });
+    return new Response(JSON.stringify(goodRefreshReply));
+  }) as unknown as typeof fetch;
+  return { fetchFn, calls };
+}
+
 function setup(
   store: ReturnType<typeof fakeStore> | null,
-  options: { linear?: ReturnType<typeof fakeLinear>; apiKey?: string | null; env?: Record<string, string | undefined> } = {},
+  options: {
+    linear?: { fetchFn: typeof fetch; calls: Call[] };
+    apiKey?: string | null;
+    env?: Record<string, string | undefined>;
+    refreshTimeoutMs?: number;
+  } = {},
 ) {
   const linear = options.linear ?? fakeLinear();
   const apiKeyReads: number[] = [];
@@ -110,6 +132,7 @@ function setup(
     env: options.env ?? {},
     fetchFn: linear.fetchFn,
     now: () => NOW,
+    ...(options.refreshTimeoutMs === undefined ? {} : { refreshTimeoutMs: options.refreshTimeoutMs }),
   };
   return { deps, linear, apiKeyReads, lockTaken };
 }
@@ -299,6 +322,87 @@ describe("Linear is merely having trouble (nothing is thrown away)", () => {
     const run = setup(fake, { linear: fakeLinear(narrow) });
     expect(await messageOf(getAuthorization(run.deps))).toContain("issues:create");
     expect(fake.events).not.toContain("save");
+  });
+});
+
+describe("the refresh request can't stall for ever", () => {
+  test("it carries a time limit", async () => {
+    const run = setup(fakeStore(tokensExpiringIn(60_000)));
+    await getAuthorization(run.deps);
+    expect(run.linear.calls[0]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("a stalled refresh while the access token still works: carries on with it, and changes nothing", async () => {
+    const fake = fakeStore(tokensExpiringIn(60_000));
+    const run = setup(fake, { linear: slowLinear({ hang: true }), refreshTimeoutMs: 40 });
+    const started = Date.now();
+    expect(await getAuthorization(run.deps)).toBe("Bearer access-old-SECRET");
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(fake.events).not.toContain("save");
+    expect(fake.events).not.toContain("clear");
+    expect(existsSync(lockPath)).toBe(false); // and the lock was let go
+  });
+
+  test("a stalled refresh with an expired token: a clear error, and the login is kept for a later try", async () => {
+    const fake = fakeStore(tokensExpiringIn(-HOUR));
+    const run = setup(fake, { linear: slowLinear({ hang: true }), refreshTimeoutMs: 40 });
+    expect(await messageOf(getAuthorization(run.deps))).toContain("Couldn't reach Linear");
+    expect(fake.events).not.toContain("clear");
+    expect(fake.current()?.refreshToken).toBe("refresh-old-SECRET");
+  });
+
+  test("the DEFAULT limit allows a slow but working refresh (it is not a few milliseconds)", async () => {
+    const fake = fakeStore(tokensExpiringIn(60_000));
+    const run = setup(fake, { linear: slowLinear({ delayMs: 150 }) });
+    expect(await getAuthorization(run.deps)).toBe("Bearer access-new-SECRET");
+    expect(fake.current()?.refreshToken).toBe("refresh-new-SECRET");
+  });
+});
+
+describe("a 200 reply that can't be used (it is Linear having trouble, not proof the login is bad)", () => {
+  const unusable: [string, () => Response][] = [
+    ["an HTML page", () => new Response("<html>oops</html>", { status: 200 })],
+    ["JSON with no tokens in it", () => json({ hello: "world" })],
+    ["too few permissions", () => json({ ...goodRefreshReply, scope: "read" })],
+    ["a token that fails our checks", () => json({ ...goodRefreshReply, access_token: "bad\nSECRET" })],
+    ["a refusal sent with a 200", () => json({ error: "server_error" })],
+  ];
+
+  test.each(unusable)("%s, while the access token still works: carries on with it, nothing saved or cleared", async (_label, reply) => {
+    const fake = fakeStore(tokensExpiringIn(60_000));
+    const run = setup(fake, { linear: fakeLinear(reply) });
+    expect(await getAuthorization(run.deps)).toBe("Bearer access-old-SECRET");
+    expect(fake.events).not.toContain("save");
+    expect(fake.events).not.toContain("clear");
+  });
+
+  test.each(unusable)("%s, with an expired token: an error, nothing cleared, and no token in the message", async (_label, reply) => {
+    const fake = fakeStore(tokensExpiringIn(-HOUR));
+    const run = setup(fake, { linear: fakeLinear(reply) });
+    const message = await messageOf(getAuthorization(run.deps));
+    expect(message).not.toContain("SECRET");
+    expect(fake.events).not.toContain("clear");
+    expect(fake.current()?.refreshToken).toBe("refresh-old-SECRET");
+  });
+});
+
+describe("a newer login saved while we were talking to Linear", () => {
+  const rejection = () => json({ error: "invalid_grant", error_description: "refresh token is invalid" }, 400);
+
+  test("is used, instead of reporting the login as ended or falling back to another credential", async () => {
+    // Loads: (1) outside the lock, (2) inside it, (3) after the refusal: someone has logged in again by now.
+    const fake = fakeStore(null, { loadQueue: [tokensExpiringIn(60_000), tokensExpiringIn(60_000), tokensExpiringIn(HOUR, "newer")] });
+    const run = setup(fake, { linear: fakeLinear(rejection), apiKey: "saved-key" });
+    expect(await getAuthorization(run.deps)).toBe("Bearer access-newer-SECRET");
+    expect(fake.events).not.toContain("clear");
+    expect(run.apiKeyReads).toHaveLength(0);
+  });
+
+  test("but a newer login that is itself due is not trusted: it falls back, and is not cleared either", async () => {
+    const fake = fakeStore(null, { loadQueue: [tokensExpiringIn(60_000), tokensExpiringIn(60_000), tokensExpiringIn(60_000, "newer")] });
+    const run = setup(fake, { linear: fakeLinear(rejection), apiKey: "saved-key" });
+    expect(await getAuthorization(run.deps)).toBe("saved-key");
+    expect(fake.events).not.toContain("clear"); // it is not the login we tried, so it is not ours to clear
   });
 });
 

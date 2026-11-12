@@ -10,11 +10,15 @@
 //  - Refresh a few minutes BEFORE the access token dies (isDueForRefresh).
 //  - Refreshing happens inside the shared lock, and is checked again once the lock is ours:
 //    every refresh retires the old refresh token, so two windows must never both do it.
+//  - The refresh request has a time limit, well under the lock's stale limit, so a stalled request
+//    can't hold the lock (and every other window) until it is taken from us.
 //  - If Linear REJECTS the refresh, the login is dead: clear it (so we don't hit Linear with a
-//    dead token on every request) and fall back to the API key or variable, if there is one.
-//  - If the refresh merely FAILS (network down, Linear erroring), keep everything as it is. If the
-//    access token hasn't expired yet, carry on using it; if it has, say so. Linear lets the same
-//    refresh token be retried for 30 minutes if a reply was lost, so a later try is safe.
+//    dead token on every request) and fall back to the API key or variable, if there is one. But if
+//    a NEWER login was saved while we were talking to Linear, use that one instead.
+//  - If the refresh merely FAILS (network down or stalled, Linear erroring, a 200 reply we can't use),
+//    keep everything as it is. If the access token hasn't expired yet, carry on using it; if it has,
+//    say so. Linear lets the same refresh token be retried for 30 minutes if a reply was lost, so a
+//    later try is safe.
 //  - A refresh that works but can't be SAVED is an error, never silent: the old refresh token is
 //    gone, so the new one would be lost.
 //  - Error messages never contain a token.
@@ -39,7 +43,12 @@ export interface SessionDeps {
   env: Record<string, string | undefined>;
   fetchFn?: typeof fetch;
   now?: () => number;
+  // How long the refresh request may take (default 8 seconds). Tests make it short.
+  refreshTimeoutMs?: number;
 }
+
+// Well under the lock's 30 second stale limit (and its heartbeat keeps a busy holder fresh anyway).
+const DEFAULT_REFRESH_TIMEOUT_MS = 8_000;
 
 type Refreshed = { kind: "ok"; tokens: Tokens } | { kind: "ended" };
 
@@ -51,6 +60,7 @@ const explainsRefusal = (body: unknown): boolean =>
 
 async function refreshLogin(deps: SessionDeps, store: TokenStore): Promise<Refreshed> {
   const { lock, fetchFn = fetch, now = Date.now } = deps;
+  const refreshTimeoutMs = deps.refreshTimeoutMs ?? DEFAULT_REFRESH_TIMEOUT_MS;
 
   return lock.withLock(async (): Promise<Refreshed> => {
     // We may have waited for another window. Look again: it has probably done the job already.
@@ -67,7 +77,12 @@ async function refreshLogin(deps: SessionDeps, store: TokenStore): Promise<Refre
     const request = buildRefreshRequest(current.refreshToken);
     let response: Response;
     try {
-      response = await fetchFn(request.url, { method: "POST", headers: request.headers, body: request.body });
+      response = await fetchFn(request.url, {
+        method: "POST",
+        headers: request.headers,
+        body: request.body,
+        signal: AbortSignal.timeout(refreshTimeoutMs),
+      });
     } catch {
       return keepGoing("Couldn't reach Linear to refresh your login. Check your connection and try again.");
     }
@@ -77,15 +92,27 @@ async function refreshLogin(deps: SessionDeps, store: TokenStore): Promise<Refre
       // Only an explained refusal (400 or 401 with { error }) means the login is dead.
       // An error page or a 5xx is Linear having trouble, not Linear saying no.
       if ((response.status === 400 || response.status === 401) && explainsRefusal(body)) {
-        // Clear it, unless a newer login was saved while we were talking to Linear.
         const latest = await store.load().catch(() => null);
+        // A different, still-fresh login was saved while we were talking to Linear (someone ran
+        // `tangent login`): that one is valid, so use it rather than reporting the login as ended.
+        if (latest !== null && latest.refreshToken !== current.refreshToken && !isDueForRefresh(latest, now())) {
+          return { kind: "ok", tokens: latest };
+        }
+        // Otherwise clear the dead login, unless what is saved is no longer the one we tried.
         if (latest !== null && latest.refreshToken === current.refreshToken) await store.clear().catch(() => {});
         return { kind: "ended" };
       }
       return keepGoing(`Linear's login service answered HTTP ${response.status}. Try again in a moment.`);
     }
 
-    const tokens = parseTokenResponse(body, now()); // a bad reply throws and leaves what is saved alone
+    // A 200 reply we can't use (an error page, missing fields, tokens that fail our checks) is Linear
+    // having trouble, like a 5xx: it leaves what is saved alone, and a token that still works is kept.
+    let tokens: Tokens;
+    try {
+      tokens = parseTokenResponse(body, now());
+    } catch (error) {
+      return keepGoing(error instanceof Error ? error.message : "Linear's reply couldn't be used.");
+    }
     try {
       await store.save(tokens);
     } catch {
