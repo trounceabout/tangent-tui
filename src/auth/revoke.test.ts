@@ -1,6 +1,6 @@
 // Tests for src/auth/revoke.ts: ending a login token at Linear.
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { GRAPHQL_URL, REVOKE_URL } from "./config.ts";
 import { buildRevokeRequest, probeAccessToken, revokeToken } from "./revoke.ts";
 
@@ -172,5 +172,37 @@ describe("the requests can't stall for ever (logout makes them while holding the
   test("an answer that arrives before the limit still counts", async () => {
     expect(await revokeToken(slowFetch({ delayMs: 20, status: 200 }).fetchFn, "tok", "access_token", 2000)).toBe("revoked");
     expect(await probeAccessToken(slowFetch({ delayMs: 20, status: 401 }).fetchFn, "tok", 2000)).toBe("rejected");
+  });
+});
+
+describe("the default time limit is exactly 5 seconds (short enough to sit well inside the lock's 30 s)", () => {
+  // AbortSignal.timeout(ms) has no readable duration, so spy on the call that creates it.
+  const spies: { mockRestore(): void }[] = [];
+  afterEach(() => {
+    for (const spy of spies.splice(0)) spy.mockRestore();
+  });
+
+  test("revokeToken asks for 5000 ms", async () => {
+    const spy = spyOn(AbortSignal, "timeout");
+    spies.push(spy);
+    await revokeToken(fakeFetch(200).fetchFn, "tok", "access_token");
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(5000);
+  });
+
+  test("probeAccessToken asks for 5000 ms", async () => {
+    const spy = spyOn(AbortSignal, "timeout");
+    spies.push(spy);
+    await probeAccessToken(fakeFetch(401).fetchFn, "tok");
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(5000);
+  });
+
+  test("a custom limit is used as given", async () => {
+    const spy = spyOn(AbortSignal, "timeout");
+    spies.push(spy);
+    await revokeToken(fakeFetch(200).fetchFn, "tok", "access_token", 1234);
+    await probeAccessToken(fakeFetch(401).fetchFn, "tok", 4321);
+    expect(spy.mock.calls.map((call) => call[0])).toEqual([1234, 4321]);
   });
 });
