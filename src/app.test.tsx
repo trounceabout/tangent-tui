@@ -285,6 +285,22 @@ describe("which credential reaches Linear", () => {
     app.unmount();
   });
 
+  test("a reload that fails AFTER the board loaded keeps the board and shows the error in the footer", async () => {
+    keychainWith({ "linear-api-key": "lin_api_saved" });
+    const linear = fakeLinear(0, false);
+    let down = false;
+    restoreFetch = mockFetch((request) => (down ? new Response("down", { status: 503 }) : linear.respond(request)));
+    const app = mountTerminal(<App />, { columns: COLUMNS, rows: ROWS, mouse: true });
+    await app.waitForText("PD-7");
+    down = true;
+    await app.press("r");
+    await app.waitForText("HTTP 503");
+    expect(app.screen().split("\n").slice(-3).join("\n")).toContain("HTTP 503"); // in the footer
+    expect(app.screen()).toContain("PD-7"); // the board is still there
+    expect(app.screen()).not.toContain("Press r to try again"); // the full-screen message is only for no board
+    app.unmount();
+  });
+
   test("while it is still loading, it says so (no error shown)", async () => {
     keychainWith({ "linear-api-key": "lin_api_saved" });
     restoreFetch = mockFetch(fakeLinear(0, false).respond, { delayMs: 300 });
