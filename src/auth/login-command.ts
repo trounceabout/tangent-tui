@@ -6,6 +6,8 @@
 import { cleanText } from "../linear.ts";
 import { openInBrowser } from "../open.ts";
 import { createSecretStore } from "../platform/secret-store.ts";
+import { loginLockPath } from "./app-session.ts";
+import { type RefreshLock, createFileLock } from "./lock.ts";
 import { type LoginDeps, runLogin } from "./login.ts";
 import { type TokenStore, createTokenStore } from "./token-store.ts";
 
@@ -15,6 +17,9 @@ export interface LoginCommandDeps {
   openBrowser: (url: string) => void;
   // Throws on a system that can't save a login (everything but macOS, for now).
   createStore: () => TokenStore;
+  // Saving the login happens inside this lock, the one a refresh and a logout also take, so they
+  // can never interleave with it (each refresh retires the old refresh token).
+  lock: RefreshLock;
   // The login itself; passed in so tests can use a fake or a wrapped real one.
   login?: (deps: LoginDeps) => Promise<unknown>;
 }
@@ -26,6 +31,7 @@ const realDeps = (): LoginCommandDeps => ({
   printError: (line) => console.error(line),
   openBrowser: openInBrowser,
   createStore: () => createTokenStore(createSecretStore()),
+  lock: createFileLock(loginLockPath()),
 });
 
 // Runs the login and returns the process exit code: 0 for logged in, 1 for anything else.
@@ -48,7 +54,7 @@ export async function runLoginCommand(deps: LoginCommandDeps = realDeps()): Prom
     await (deps.login ?? runLogin)({
       openBrowser: deps.openBrowser,
       print: deps.print,
-      save: (tokens) => store.save(tokens),
+      save: (tokens) => deps.lock.withLock(() => store.save(tokens)),
     });
     return 0;
   } catch (error) {

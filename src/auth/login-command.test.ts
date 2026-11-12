@@ -37,14 +37,26 @@ function setup(overrides: Partial<LoginCommandDeps> = {}) {
   const errors: string[] = [];
   const opened: string[] = [];
   const { vault, items } = memoryVault();
+  // A stand-in for the shared refresh lock that records when it is taken and let go.
+  const lockEvents: string[] = [];
   const deps: LoginCommandDeps = {
     print: (line) => out.push(line),
     printError: (line) => errors.push(line),
     openBrowser: (url) => opened.push(url),
     createStore: () => createTokenStore(vault),
+    lock: {
+      withLock: async (task) => {
+        lockEvents.push("lock");
+        try {
+          return await task();
+        } finally {
+          lockEvents.push("unlock");
+        }
+      },
+    },
     ...overrides,
   };
-  return { deps, out, errors, opened, items, vault };
+  return { deps, out, errors, opened, items, vault, lockEvents };
 }
 
 describe("a successful login", () => {
@@ -106,6 +118,69 @@ describe("a successful login", () => {
     expect(saved?.refreshToken).toBe("refresh-SECRET");
     expect(saved?.expiresAt).toBe(1_800_000_000_000 + 86399 * 1000);
     expect(run.out.join("\n")).not.toContain("SECRET");
+  });
+});
+
+describe("saving takes the shared lock", () => {
+  test("the tokens are saved while the lock is held, never outside it", async () => {
+    const events: string[] = [];
+    const run = setup({
+      createStore: () => ({
+        load: async () => null,
+        save: async () => {
+          events.push("save");
+        },
+        clear: async () => {},
+      }),
+      lock: {
+        withLock: async (task) => {
+          events.push("lock");
+          try {
+            return await task();
+          } finally {
+            events.push("unlock");
+          }
+        },
+      },
+      login: async (deps) => {
+        await deps.save(TOKENS);
+      },
+    });
+    expect(await runLoginCommand(run.deps)).toBe(0);
+    expect(events).toEqual(["lock", "save", "unlock"]);
+  });
+
+  test("the lock is let go even when saving fails", async () => {
+    const run = setup({
+      createStore: () => ({
+        load: async () => null,
+        save: async () => {
+          throw new Error("Couldn't save to the Keychain.");
+        },
+        clear: async () => {},
+      }),
+      login: async (deps) => {
+        await deps.save(TOKENS);
+      },
+    });
+    expect(await runLoginCommand(run.deps)).toBe(1);
+    expect(run.lockEvents).toEqual(["lock", "unlock"]);
+  });
+
+  test("a lock that can't be taken fails the login with that reason, and saves nothing", async () => {
+    const run = setup({
+      lock: {
+        withLock: async () => {
+          throw new Error("Another Tangent window is refreshing the login. Try again in a moment.");
+        },
+      },
+      login: async (deps) => {
+        await deps.save(TOKENS);
+      },
+    });
+    expect(await runLoginCommand(run.deps)).toBe(1);
+    expect(run.errors[0]).toContain("Another Tangent window");
+    expect(await createTokenStore(run.vault).load()).toBeNull();
   });
 });
 
