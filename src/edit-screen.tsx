@@ -31,7 +31,8 @@ import {
 } from "./edit.ts";
 import type { EditKind, EditOption } from "./edit.ts";
 import { expandBurst } from "./keys.ts";
-import { cleanText, getApiKey } from "./linear.ts";
+import { getAuthHeader } from "./auth/app-session.ts";
+import { cleanText } from "./linear.ts";
 import type { Issue } from "./linear.ts";
 import { fetchTeamSettings, isDryRun, updateIssue } from "./mutations.ts";
 
@@ -87,7 +88,7 @@ export function EditScreen({
     let cancelled = false;
     void (async () => {
       try {
-        const settings = await fetchTeamSettings(await getApiKey(), issue.team.key);
+        const settings = await fetchTeamSettings(await getAuthHeader(), issue.team.key);
         if (cancelled) return;
         const offer = buildOptions(kind, issue, settings);
         setStage(
@@ -118,7 +119,7 @@ export function EditScreen({
     savingRef.current = true;
     setStage({ name: "saving", options: stage.options, cursor: stage.cursor });
     try {
-      const result = await updateIssue(await getApiKey(), issue.identifier, changeFor(kind, option));
+      const result = await updateIssue(await getAuthHeader(), issue.identifier, changeFor(kind, option));
       onDone(`${result.dryRun ? "(dry run) " : ""}${describeChange(kind, issue, option)}`);
     } catch (err) {
       setStage({ name: "failed", options: stage.options, cursor: stage.cursor, message: errorText(err) });

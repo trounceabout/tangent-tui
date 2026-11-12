@@ -93,19 +93,38 @@ function sanitizeIssue(issue: Issue): Issue {
 // API key + fetching
 // ---------------------------------------------------------------------------
 
-// Read the API key from the macOS Keychain (service "linear-api-key").
+// The Keychain item a personal API key is saved in. (The README's cleanup commands name it too, and a
+// test checks they match.)
+export const API_KEY_ITEM = "linear-api-key";
+
+// `security`'s exit code for "no such item".
+const KEYCHAIN_NOT_FOUND = 44;
+
+// Read the saved personal API key from the macOS Keychain. This is only one of the credentials:
+// getAuthHeader() in src/auth/ decides whether to use it (a browser login wins).
 // `-w` makes `security` print only the password so we can capture it.
-export async function getApiKey(): Promise<string> {
-  const proc = Bun.spawn(["security", "find-generic-password", "-s", "linear-api-key", "-w"], {
+//
+// Returns null ONLY when there is no key (no such item, or an empty one). If the Keychain can't be
+// read at all (locked, access denied, `security` failing) it THROWS: that must not look like "no
+// key", or the person would be told to log in when the real problem is the Keychain.
+export async function getApiKey(): Promise<string | null> {
+  const proc = Bun.spawn(["security", "find-generic-password", "-s", API_KEY_ITEM, "-w"], {
     stdout: "pipe",
     stderr: "pipe",
   });
   const out = (await new Response(proc.stdout).text()).trim();
-  if ((await proc.exited) !== 0 || !out) {
-    throw new Error("Couldn't read 'linear-api-key' from the Keychain.");
-  }
-  return out;
+  const code = await proc.exited;
+  if (code === KEYCHAIN_NOT_FOUND) return null;
+  if (code !== 0) throw new Error("Couldn't read the saved API key from the Keychain.");
+  return out === "" ? null : out;
 }
+
+// A header value must be printable ASCII (or a space). Anything else in a credential (a newline or a
+// zero-width space pasted into LINEAR_API_KEY, a euro sign) makes `fetch` throw an error that QUOTES
+// the whole header value, and the app shows error text on screen: the credential would be printed.
+// So it is checked first, and refused without being quoted.
+const HEADER_VALUE = /^[\x20-\x7e]+$/;
+export const BAD_CREDENTIAL_MESSAGE = "The Linear credential has characters that can't be sent. Check LINEAR_API_KEY or your saved key.";
 
 // Issues assigned to me in any cycle that is currently active. Linear decides
 // what "active" means, so this survives cycle rollover with no hard-coded IDs.
@@ -144,15 +163,25 @@ export async function linearQuery<T>(
   query: string,
   variables: Record<string, unknown>,
 ): Promise<T> {
-  const res: Response = await fetch("https://api.linear.app/graphql", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      // Personal API keys go in as-is. Do NOT prefix with "Bearer ".
-      Authorization: apiKey,
-    },
-    body: JSON.stringify({ query, variables }),
-  });
+  if (!HEADER_VALUE.test(apiKey)) throw new Error(BAD_CREDENTIAL_MESSAGE);
+
+  let res: Response;
+  try {
+    res = await fetch("https://api.linear.app/graphql", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // `apiKey` is really the whole Authorization header VALUE from getAuthHeader(): a personal API
+        // key goes in as-is (do NOT add "Bearer " to it), and a browser login arrives already written
+        // as "Bearer <token>". Either way, send it untouched.
+        Authorization: apiKey,
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+  } catch {
+    // A fixed message, never the error's own text: it can quote the Authorization header.
+    throw new Error("Couldn't reach Linear. Check your connection and try again.");
+  }
 
   if (!res.ok) throw new Error(`Linear API returned HTTP ${res.status}`);
   const json = (await res.json()) as { data?: T; errors?: unknown };

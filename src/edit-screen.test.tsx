@@ -385,16 +385,22 @@ describe("when the write fails", () => {
   // could. (This test used a plain HTTP 500, whose message is our own fixed text, so it
   // had nothing to clean.) An OSC 8 hyperlink is used because the test terminal's own ANSI
   // stripper would hide ordinary colour codes, and Ink lets hyperlinks through.
-  test("an error text containing escape sequences is cleaned before it is shown", async () => {
-    const hostile = `bad${ESC}]8;;https://evil.example\u0007link${ESC}]8;;\u0007 text`;
+  test("an error from the network layer, hostile text and all, never reaches the screen: a fixed message is shown", async () => {
+    // linearQuery used to pass a failing fetch's own message on, and the screen cleaned it. That text
+    // can also QUOTE the Authorization header (Bun does), so linearQuery now replaces it with a fixed
+    // message and the hostile text never gets this far. The screen still cleans whatever it is given
+    // (defence in depth; cleanText has its own tests), but this is the stronger guarantee.
+    const hostile = `bad${ESC}]8;;https://evil.example\u0007link${ESC}]8;;\u0007 text SECRETTAIL`;
     const edit = mount("priority", () => {
       throw new Error(hostile);
     });
     await edit.waitForText("(current)"); // the picker is showing
     await edit.press(KEY.j, KEY.enter, KEY.enter);
     await edit.waitForText("Linear didn't apply the change");
-    expect(edit.flat()).toContain("bad"); // the readable part is still shown
-    expect(edit.screen()).not.toContain(ESC);
+    expect(edit.flat()).toContain("Couldn't reach Linear"); // the fixed message
+    expect(edit.flat()).not.toContain("SECRETTAIL"); // none of the hostile text...
+    expect(edit.flat()).not.toContain("evil.example");
+    expect(edit.screen()).not.toContain(ESC); // ...and no escape sequence
     expect(edit.screen()).not.toContain("\u0007");
     edit.unmount();
   });

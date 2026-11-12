@@ -184,6 +184,62 @@ describe("the app, before any editing", () => {
 });
 
 // ---------------------------------------------------------------------------
+describe("which credential reaches Linear", () => {
+  // The Keychain fake from beforeEach answers every lookup alike, so it can't tell the
+  // credentials apart. These replace it with one that answers per item name.
+  const loginBlob = () =>
+    Buffer.from(
+      JSON.stringify({
+        version: 1,
+        accessToken: "access-SECRET",
+        refreshToken: "refresh-SECRET",
+        expiresAt: Date.now() + 60 * 60 * 1000,
+        scopes: ["issues:create", "read"],
+      }),
+    ).toString("base64url");
+
+  const keychainWith = (items: Record<string, string>) =>
+    spawn.mockImplementation(((command: string[]) => {
+      const stored = items[command[command.indexOf("-s") + 1] ?? ""];
+      return {
+        stdout: new Response(stored === undefined ? "" : `${stored}\n`).body,
+        stderr: new Response("").body,
+        exited: Promise.resolve(stored === undefined ? 44 : 0),
+      };
+    }) as never);
+
+  test("a saved browser login is sent as a Bearer token by every screen, including the write", async () => {
+    keychainWith({ "tangent-oauth": loginBlob() });
+    const app = await startApp();
+    await app.openDetail(); // the detail screen's own request
+    await app.press("s");
+    await app.waitForText("Change status", "In Progress"); // the team-settings request
+    await app.press(KEY.j, KEY.enter, KEY.enter);
+    await app.waitForText("✓ PD-7: Todo → In Progress"); // the write, then the board reload
+
+    const kinds = new Set(
+      app.server.requests.map((r) => (r.query.includes("issueUpdate") ? "write" : r.query.includes("MyCycleIssues") ? "board" : "other")),
+    );
+    expect(kinds).toEqual(new Set(["board", "other", "write"])); // all three kinds were really sent
+    for (const request of app.server.requests) {
+      expect(request.headers.Authorization).toBe("Bearer access-SECRET");
+    }
+    app.unmount();
+  });
+
+  test("with only a saved API key, the raw key is sent, with no Bearer", async () => {
+    keychainWith({ "linear-api-key": "lin_api_saved" });
+    const app = await startApp();
+    await app.openDetail();
+    expect(app.server.requests.length).toBeGreaterThan(1);
+    for (const request of app.server.requests) {
+      expect(request.headers.Authorization).toBe("lin_api_saved");
+    }
+    app.unmount();
+  });
+});
+
+// ---------------------------------------------------------------------------
 describe("the edit panel floats over the detail screen", () => {
   test("it's drawn on top of the screen, which stays visible around it and is fully covered beneath it", async () => {
     const app = await startApp();

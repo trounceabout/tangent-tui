@@ -8,7 +8,8 @@ import { Box, Text, useInput, useWindowSize } from "ink";
 import type { Key } from "ink";
 import { expandBurst } from "./keys.ts";
 import { WHEEL_LINES, useMouse } from "./mouse-context.ts";
-import { cleanText, formatDue, formatEstimate, getApiKey, isFinished } from "./linear.ts";
+import { getAuthHeader } from "./auth/app-session.ts";
+import { cleanText, formatDue, formatEstimate, isFinished } from "./linear.ts";
 import type { Issue } from "./linear.ts";
 import { buildBodyLines, fetchIssueDetail, wrapText } from "./detail.ts";
 import type { IssueDetail } from "./detail.ts";
@@ -51,7 +52,7 @@ export function DetailView({
     let cancelled = false;
     void (async () => {
       try {
-        const detail = await fetchIssueDetail(await getApiKey(), issue.identifier);
+        const detail = await fetchIssueDetail(await getAuthHeader(), issue.identifier);
         if (!cancelled) setLoad({ status: "ready", detail });
       } catch (err) {
         if (!cancelled) setLoad({ status: "error", message: cleanText(err instanceof Error ? err.message : String(err)) });

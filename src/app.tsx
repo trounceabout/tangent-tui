@@ -7,7 +7,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
 import type { Key } from "ink";
 import { expandBurst } from "./keys.ts";
-import { COLLAPSED_STATUSES, cleanText, cycleProgress, fetchIssues, getApiKey, groupIssues } from "./linear.ts";
+import { getAuthHeader } from "./auth/app-session.ts";
+import { COLLAPSED_STATUSES, cleanText, cycleProgress, fetchIssues, groupIssues } from "./linear.ts";
 import type { Issue, StatusGroup } from "./linear.ts";
 import { CycleHeader, GroupHeader, IssueRow, issueHeight } from "./components.tsx";
 import { DetailView } from "./detail-view.tsx";
@@ -115,7 +116,7 @@ export function App() {
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const fresh = await fetchIssues(await getApiKey());
+      const fresh = await fetchIssues(await getAuthHeader());
       setIssues(fresh);
       setError(null);
       setUpdatedAt(new Date());

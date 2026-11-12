@@ -1,6 +1,6 @@
 // Tests for src/linear.ts: fetching, cleaning, grouping, and formatting issues.
 
-import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import {
   COLLAPSED_STATUSES,
   cleanMultiline,
@@ -13,6 +13,9 @@ import {
   groupIssues,
   isFinished,
   linearQuery,
+  API_KEY_ITEM,
+  BAD_CREDENTIAL_MESSAGE,
+  getApiKey,
 } from "./linear.ts";
 import { BEL, ESC, hasControlChars, makeIssue, mockFetch } from "./testing.ts";
 
@@ -79,6 +82,133 @@ describe("linearQuery", () => {
   test("throws when there is no data", async () => {
     restore = mockFetch(() => ({}));
     await expect(linearQuery("k", "{ x }", {})).rejects.toThrow("no data");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A real `fetch` (Bun) given a bad header value throws an error that QUOTES the whole value:
+//   Header '14' has invalid value: 'Bearer abc\nSECRETTAIL'
+// and the app shows error text on screen, so the credential would be printed.
+describe("linearQuery never prints the credential", () => {
+  const badCredentials: [string, string][] = [
+    ["a line break", "Bearer abc\r\nSECRETTAIL"],
+    ["a newline", "lin_api_abc\nSECRETTAIL"],
+    ["a euro sign", "Bearer abc\u20acSECRETTAIL"],
+    ["a Latin-1 letter (valid in a header, but no real credential has one)", "lin_api_abc\u00e9SECRETTAIL"],
+    ["a DEL character", "lin_api_abc\u007fSECRETTAIL"],
+    ["a zero-width space", "lin_api_abc\u200bSECRETTAIL"],
+    ["a tab", "lin_api_abc\tSECRETTAIL"],
+    ["an empty value", ""],
+  ];
+
+  test.each(badCredentials)("%s: refused with a fixed message, and nothing is sent", async (_label, credential) => {
+    let sent = 0;
+    restore = mockFetch(() => {
+      sent += 1;
+      return { data: {} };
+    });
+    let message = "";
+    try {
+      await linearQuery("x", "{ x }", {}).then(() => linearQuery(credential, "{ x }", {}));
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toBe(BAD_CREDENTIAL_MESSAGE);
+    expect(message).not.toContain("SECRETTAIL");
+    expect(sent).toBe(1); // only the good first call went out
+  });
+
+  test("the message says what to check, and fits a narrow pane's wrapping", () => {
+    expect(BAD_CREDENTIAL_MESSAGE).toContain("LINEAR_API_KEY");
+    expect(BAD_CREDENTIAL_MESSAGE).toContain("saved key");
+  });
+
+  test("the credential every real call uses is accepted: a Bearer login and a plain API key", async () => {
+    restore = mockFetch(() => ({ data: { ok: true } }));
+    expect(await linearQuery("Bearer abc.def_ghi-123~+/=", "{ x }", {})).toEqual({ ok: true });
+    expect(await linearQuery("lin_api_0123456789abcdef", "{ x }", {})).toEqual({ ok: true });
+  });
+
+  test("a fetch that throws an error quoting the header (like Bun's) gives a fixed message", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      throw new Error("Header '14' has invalid value: 'Bearer abc SECRETTAIL'");
+    }) as unknown as typeof fetch;
+    try {
+      const message = await linearQuery("lin_api_ok", "{ x }", {}).then(
+        () => "",
+        (error: Error) => error.message,
+      );
+      expect(message).toBe("Couldn't reach Linear. Check your connection and try again.");
+      expect(message).not.toContain("SECRETTAIL");
+      expect(message).not.toContain("Header");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  test("no network gives the same fixed message", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      throw new TypeError("fetch failed");
+    }) as unknown as typeof fetch;
+    try {
+      await expect(linearQuery("lin_api_ok", "{ x }", {})).rejects.toThrow("Couldn't reach Linear");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  test("a REAL fetch given a bad header really does quote it (so the guard above is needed, not decoration)", async () => {
+    // Aimed at a closed local port: the header is rejected before anything is sent. (Bun throws this
+    // SYNCHRONOUSLY from the fetch call itself, not as a rejected promise.)
+    let message = "";
+    try {
+      await fetch("http://127.0.0.1:9/", { method: "POST", headers: { Authorization: "Bearer abc\nSECRETTAIL" } });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("SECRETTAIL");
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe("getApiKey", () => {
+  let spawn: ReturnType<typeof spyOn<typeof Bun, "spawn">>;
+  afterEach(() => spawn?.mockRestore());
+  const keychain = (exitCode: number, stdout = "") => {
+    spawn = spyOn(Bun, "spawn").mockImplementation((() => ({
+      stdout: new Response(stdout).body,
+      stderr: new Response("").body,
+      exited: Promise.resolve(exitCode),
+    })) as never);
+  };
+
+  test("returns the saved key", async () => {
+    keychain(0, "lin_api_saved\n");
+    expect(await getApiKey()).toBe("lin_api_saved");
+  });
+
+  test("looks the key up under its own Keychain item name", async () => {
+    keychain(0, "k");
+    await getApiKey();
+    expect(spawn.mock.calls[0]?.[0]).toEqual(["security", "find-generic-password", "-s", API_KEY_ITEM, "-w"]);
+    expect(API_KEY_ITEM).toBe("linear-api-key");
+  });
+
+  test("no such item (exit 44) is null: there is simply no saved key", async () => {
+    keychain(44);
+    expect(await getApiKey()).toBeNull();
+  });
+
+  test("an empty key is null too", async () => {
+    keychain(0, "\n");
+    expect(await getApiKey()).toBeNull();
+  });
+
+  test.each([36, 51, 1, 128])("a Keychain that can't be read (exit %d) is an ERROR, never 'no key'", async (code) => {
+    keychain(code);
+    await expect(getApiKey()).rejects.toThrow("Couldn't read the saved API key");
   });
 });
 
