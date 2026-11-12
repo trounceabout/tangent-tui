@@ -5,7 +5,7 @@
 // Nothing here touches the real Keychain.
 
 import { describe, expect, test } from "bun:test";
-import { type Run, type SecretStore, createMacSecretStore } from "../platform/secret-store.ts";
+import { DamagedSecretError, type Run, type SecretStore, createMacSecretStore } from "../platform/secret-store.ts";
 import { TOKENS_SECRET_NAME, createTokenStore, parseStoredTokens } from "./token-store.ts";
 import type { Tokens } from "./token.ts";
 
@@ -17,13 +17,14 @@ const TOKENS: Tokens = {
 };
 
 // A vault in memory. `getThrows` makes reading fail, like a locked Keychain.
-function memoryVault(options: { getThrows?: boolean; setThrows?: boolean } = {}) {
+function memoryVault(options: { getThrows?: boolean; setThrows?: boolean; getDamaged?: boolean } = {}) {
   const items = new Map<string, string>();
   const calls: string[] = [];
   const vault: SecretStore = {
     async get(name) {
       calls.push(`get:${name}`);
       if (options.getThrows) throw new Error("Couldn't read from the Keychain.");
+      if (options.getDamaged) throw new DamagedSecretError();
       return items.get(name) ?? null;
     },
     async set(name, value) {
@@ -109,10 +110,17 @@ describe("loading something that isn't ours", () => {
     ["empty access token", blob({ accessToken: "" })],
     ["access token not text", blob({ accessToken: 123 })],
     ["access token too long", blob({ accessToken: "x".repeat(301) })],
+    ["access token with a line break", blob({ accessToken: "abc\r\nSECRET" })],
+    ["access token with a space", blob({ accessToken: "abc SECRET" })],
+    ["access token outside Latin-1", blob({ accessToken: "abc\u20acSECRET" })],
+    ["access token with a quote", blob({ accessToken: 'abc"SECRET' })],
+    ["access token with a backslash", blob({ accessToken: "abc\\SECRET" })],
     ["no refresh token", blob({ refreshToken: undefined })],
     ["empty refresh token", blob({ refreshToken: "" })],
     ["refresh token not text", blob({ refreshToken: { a: 1 } })],
     ["refresh token too long", blob({ refreshToken: "x".repeat(301) })],
+    ["refresh token with a line break", blob({ refreshToken: "abc\r\nSECRET" })],
+    ["refresh token outside Latin-1", blob({ refreshToken: "abc\u20acSECRET" })],
     ["no expiry", blob({ expiresAt: undefined })],
     ["expiry as text", blob({ expiresAt: "1800000086399" })],
     ["expiry zero", blob({ expiresAt: 0 })],
@@ -150,10 +158,43 @@ describe("loading something that isn't ours", () => {
   });
 });
 
+describe("an item in the vault that isn't ours", () => {
+  test("a DamagedSecretError from the vault is 'not logged in' (null), not an error", async () => {
+    const store = createTokenStore(memoryVault({ getDamaged: true }).vault);
+    expect(await store.load()).toBeNull();
+  });
+
+  test("a vault that can't be read is still an error, never 'not logged in'", async () => {
+    const store = createTokenStore(memoryVault({ getThrows: true }).vault);
+    expect(await messageOf(store.load())).toContain("Couldn't read");
+  });
+
+  test("end to end through the real macOS store code: text that isn't base64url is null, and is left in place", async () => {
+    const items = new Map<string, string>([[TOKENS_SECRET_NAME, "7b22 not base64url!"]]);
+    const run: Run = async (command) => {
+      const name = command[command.indexOf("-s") + 1] ?? "";
+      const stored = items.get(name);
+      return stored === undefined ? { exitCode: 44, stdout: "", stderr: "" } : { exitCode: 0, stdout: `${stored}\n`, stderr: "" };
+    };
+    expect(await createTokenStore(createMacSecretStore(run)).load()).toBeNull();
+    expect(items.get(TOKENS_SECRET_NAME)).toBe("7b22 not base64url!");
+  });
+
+  test("a saved login replaces a damaged one", async () => {
+    const { vault, items } = memoryVault();
+    items.set(TOKENS_SECRET_NAME, "garbage");
+    const store = createTokenStore(vault);
+    await store.save(TOKENS);
+    expect(await store.load()).toEqual(TOKENS);
+  });
+});
+
 describe("saving bad tokens", () => {
   const badTokens: [string, Tokens][] = [
     ["an empty access token", { ...TOKENS, accessToken: "" }],
     ["an access token that is too long", { ...TOKENS, accessToken: "x".repeat(301) }],
+    ["an access token with a line break", { ...TOKENS, accessToken: "abc\nSECRET" }],
+    ["a refresh token outside Latin-1", { ...TOKENS, refreshToken: "abc\u20acSECRET" }],
     ["an empty refresh token", { ...TOKENS, refreshToken: "" }],
     ["an expiry that isn't a number", { ...TOKENS, expiresAt: Number.NaN }],
     ["an expiry in the infinite future", { ...TOKENS, expiresAt: Number.POSITIVE_INFINITY }],
@@ -211,14 +252,20 @@ describe("on top of the real macOS secret store code", () => {
 
   test("the largest tokens the store allows still fit under the secret store's size cap", async () => {
     // If someone raises the token limits without checking the cap, this fails.
+    // Every character is one that JSON has to treat specially IF it were allowed (a slash, a plus, an
+    // equals sign): the alphabet is chosen so none of them is escaped, which is what makes the size
+    // predictable. (A rule allowing quotes or backslashes would double those characters and break this.)
     const biggest: Tokens = {
-      accessToken: "x".repeat(300),
-      refreshToken: "y".repeat(300),
-      expiresAt: 1_800_000_086_399,
-      scopes: Array.from({ length: 8 }, () => "a".repeat(40)),
+      accessToken: "/+=".repeat(100),
+      refreshToken: "=+/".repeat(100),
+      expiresAt: 9_007_199_254_740_991, // the largest safe integer: the longest a number can be
+      scopes: Array.from({ length: 8 }, () => "a:._-".repeat(8)),
     };
     const store = createTokenStore(createMacSecretStore(fakeSecurity()));
     await store.save(biggest);
     expect(await store.load()).toEqual(biggest);
+    // And the saved text is comfortably inside the secret store's 1,700-character cap.
+    const asJson = JSON.stringify({ version: 1, ...biggest });
+    expect(Buffer.from(asJson).toString("base64url").length).toBeLessThan(1500);
   });
 });

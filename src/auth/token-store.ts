@@ -4,10 +4,12 @@
 //
 // The blob is read back from somewhere other programs could in principle write to, so loading
 // it is as strict as reading Linear's reply: anything that isn't exactly what we saved is
-// treated as "not logged in" (null), never trusted and never a crash.
+// treated as "not logged in" (null), never trusted and never a crash. That includes an item whose
+// text isn't ours at all (a DamagedSecretError from the vault): it is "not logged in" too, so a
+// damaged item can't block the API-key fallback. Only a vault we can't READ is an error.
 
-import type { SecretStore } from "../platform/secret-store.ts";
-import type { Tokens } from "./token.ts";
+import { DamagedSecretError, type SecretStore } from "../platform/secret-store.ts";
+import { MAX_SCOPES, SCOPE_NAME, TOKEN_PATTERN, type Tokens } from "./token.ts";
 
 // The name the tokens are stored under. (A plain `tangent-oauth`: the secret store only
 // accepts lowercase letters, digits and . _ - in names.)
@@ -17,17 +19,17 @@ export const TOKENS_SECRET_NAME = "tangent-oauth";
 // deleted: it may have been written by a newer Tangent, which an older one must not destroy.
 const FORMAT_VERSION = 1;
 
-// Limits that keep the whole blob safely under the secret store's size cap (a test checks that
-// the largest allowed blob still fits). Linear's tokens are about 75 characters, so this is generous.
-const MAX_TOKEN_CHARS = 300;
-const MAX_SCOPES = 8;
-const SCOPE_NAME = /^[A-Za-z0-9:_.-]{1,40}$/; // the same rule token.ts applies to Linear's reply
+// The rules for what a token, a scope and the scope count may look like are NOT repeated here:
+// they are the ones token.ts applies to Linear's reply (TOKEN_PATTERN, SCOPE_NAME, MAX_SCOPES), so
+// anything we accept from Linear is something we can save, and anything we load was checked by
+// the same rules. They keep the whole blob safely under the secret store's size cap: tokens use an
+// alphabet that needs no JSON escaping, so the largest allowed blob is about 1,000 bytes (a test
+// saves exactly that blob through the real macOS store code).
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const isToken = (value: unknown): value is string =>
-  typeof value === "string" && value.length > 0 && value.length <= MAX_TOKEN_CHARS;
+const isToken = (value: unknown): value is string => typeof value === "string" && TOKEN_PATTERN.test(value);
 
 // Is this exactly a well-formed Tokens? Used both before saving and after loading.
 function isValidTokens(value: unknown): value is Tokens {
@@ -71,7 +73,15 @@ export interface TokenStore {
 export function createTokenStore(secrets: SecretStore): TokenStore {
   return {
     async load() {
-      const text = await secrets.get(TOKENS_SECRET_NAME);
+      let text: string | null;
+      try {
+        text = await secrets.get(TOKENS_SECRET_NAME);
+      } catch (error) {
+        // An item that isn't ours is "not logged in" (and is left in place, like any unusable blob).
+        // Any other error means we couldn't LOOK, which must not pass for a logout.
+        if (error instanceof DamagedSecretError) return null;
+        throw error;
+      }
       return text === null ? null : parseStoredTokens(text);
     },
 
