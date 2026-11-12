@@ -39,19 +39,29 @@ function fakeLinear(
   const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     calls.push({ url, init: init ?? {} });
+    // A slow answer that a real `fetch` would abort when its time limit fires: the fake must too,
+    // or it can never show that a limit is too short.
+    const slowly = (ms: number) =>
+      new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, ms);
+        init?.signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(init.signal?.reason ?? new Error("aborted"));
+        });
+      });
     const stall = () =>
       new Promise<Response>((_resolve, reject) => {
         // A stalled server: nothing comes back unless the caller's time limit aborts the request.
         init?.signal?.addEventListener("abort", () => reject(init.signal?.reason ?? new Error("aborted")));
       });
     if (url === TOKEN_URL) {
-      if (options.tokenDelayMs) await new Promise((resolve) => setTimeout(resolve, options.tokenDelayMs));
+      if (options.tokenDelayMs) await slowly(options.tokenDelayMs);
       if (options.tokenHangs) return stall();
       if (options.tokenThrows) throw new Error("network down");
       return options.token ? options.token() : json(goodTokenReply);
     }
     if (url === GRAPHQL_URL) {
-      if (options.graphqlDelayMs) await new Promise((resolve) => setTimeout(resolve, options.graphqlDelayMs));
+      if (options.graphqlDelayMs) await slowly(options.graphqlDelayMs);
       if (options.graphqlHangs) return stall();
       if (options.graphqlThrows) throw new Error("network down");
       return options.graphql ? options.graphql() : json({ data: { organization: { name: "Acme Corp" } } });
